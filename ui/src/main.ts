@@ -478,7 +478,6 @@ latencyConfirm.addEventListener("click", async () => {
       playing = true;
       playerStatus.textContent = t("player_playing");
     }
-    setLatencyCooldown(10_000);
   } catch (err) {
     const message = String(err);
     const cooldown = /^latency_cooldown:(\d+)$/.exec(message);

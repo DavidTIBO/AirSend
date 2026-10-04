@@ -33,7 +33,9 @@ const KEY_LATENCY: &str = "latency";
 const KEY_MULTI_DEVICE: &str = "multi_device";
 const KEY_LOCAL_BUFFER: &str = "experimental_local_buffer";
 const AUDIO_DIAGNOSTICS_INTERVAL: Duration = Duration::from_secs(10);
-const LATENCY_CHANGE_COOLDOWN: Duration = Duration::from_secs(10);
+// Cooldown disabled: latency changes apply immediately (each one still
+// restarts the AirPlay session).
+const LATENCY_CHANGE_COOLDOWN: Duration = Duration::ZERO;
 
 fn latency_cooldown_remaining(last_change: Option<Instant>, now: Instant) -> Duration {
     last_change
@@ -46,16 +48,9 @@ mod latency_tests {
     use super::*;
 
     #[test]
-    fn changes_unlock_after_ten_seconds() {
+    fn changes_are_never_locked() {
         let changed_at = Instant::now();
-        assert_eq!(
-            latency_cooldown_remaining(Some(changed_at), changed_at + Duration::from_secs(9)),
-            Duration::from_secs(1)
-        );
-        assert_eq!(
-            latency_cooldown_remaining(Some(changed_at), changed_at + Duration::from_secs(10)),
-            Duration::ZERO
-        );
+        assert_eq!(latency_cooldown_remaining(Some(changed_at), changed_at), Duration::ZERO);
     }
 
     #[test]

@@ -169,7 +169,8 @@ fn streaming_stream_config(latency_ms: u32) -> Result<StreamConfig, StreamError>
     Ok(StreamConfig {
         stream_type: StreamType::Realtime,
         audio_format,
-        timing_protocol: TimingProtocol::Ntp,
+        // Test B: HomePod OS 27 standalone requires PTP (BMCA yield)
+        timing_protocol: TimingProtocol::Ptp,
         ptp_mode: PtpMode::Master,
         latency_min,
         latency_max,

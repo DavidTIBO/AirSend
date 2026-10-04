@@ -464,10 +464,17 @@ fn capture_thread_main(
         let idle = last_real_audio.elapsed() >= SILENCE_AFTER_IDLE;
         if idle {
             let now = Instant::now();
-            if now >= silence_next {
+            // Un bloqueo largo descarta tiempo pasado en vez de enviar
+            // una ráfaga de paquetes que elevaría la latencia.
+            if now.saturating_duration_since(silence_next) > chunk_duration * 4 {
+                silence_next = now;
+            }
+            // Windows wakes up with ~15.6 ms granularity, so a single chunk per
+            // wake-up only delivers ~64 chunks/s (half real time): catch up.
+            while now >= silence_next {
                 // No acumulamos silencio en la cola. Si vuelve el audio real,
-                // como máximo habrá dos paquetes mudos por delante.
-                if tx.len() < 2 {
+                // como máximo habrá unos pocos paquetes mudos por delante.
+                if tx.len() < 4 {
                     match tx.try_send(CapturedFrame::new(
                         vec![0i16; chunk_samples],
                         target_channels,
@@ -477,9 +484,7 @@ fn capture_thread_main(
                         Err(_) => chunks_dropped += 1,
                     }
                 }
-                // Un bloqueo largo descarta tiempo pasado en vez de enviar
-                // una ráfaga de paquetes que elevaría la latencia.
-                silence_next = now + chunk_duration;
+                silence_next += chunk_duration;
             }
         } else {
             silence_next = last_real_audio + SILENCE_AFTER_IDLE;
