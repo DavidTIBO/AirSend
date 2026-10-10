@@ -1782,6 +1782,8 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<TrayItems> {
     let mut builder = TrayIconBuilder::with_id("main")
         .tooltip("AirSend")
         .menu(&menu)
+        // Left click is reserved for the volume panel; the menu is right-click only.
+        .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => toggle_main_window(app),
             "quit" => {
@@ -1795,12 +1797,17 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<TrayItems> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            // Click izquierdo en el icono = toggle ventana, comportamiento
-            // típico de apps de tray en Windows.
-            if let TrayIconEvent::Click { button, .. } = event {
-                if matches!(button, tauri::tray::MouseButton::Left) {
-                    toggle_main_window(tray.app_handle());
-                }
+            // Left click opens the compact volume panel above the icon (like
+            // TuneBlade); the full window stays reachable from the panel and
+            // from the right-click menu.
+            if let TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                rect,
+                ..
+            } = event
+            {
+                toggle_flyout(tray.app_handle(), rect);
             }
         });
     if let Some(icon) = app.default_window_icon() {
@@ -1812,6 +1819,111 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<TrayItems> {
         show: show_item,
         quit: quit_item,
     })
+}
+
+const FLYOUT_LABEL: &str = "flyout";
+const FLYOUT_SIZE: (f64, f64) = (340.0, 112.0);
+
+/// When the panel was last hidden by losing focus. Clicking the tray icon
+/// while the panel is open first steals its focus (hiding it), then delivers
+/// the click: that click must not reopen it.
+static FLYOUT_HIDDEN_AT: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
+fn setup_flyout(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let flyout = tauri::WebviewWindowBuilder::new(
+        app,
+        FLYOUT_LABEL,
+        tauri::WebviewUrl::App("flyout.html".into()),
+    )
+    .title("AirSend")
+    .inner_size(FLYOUT_SIZE.0, FLYOUT_SIZE.1)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(false)
+    .focused(false)
+    .shadow(true)
+    .build()?;
+    let handle = app.clone();
+    flyout.on_window_event(move |event| {
+        if let WindowEvent::Focused(false) = event {
+            hide_flyout_window(&handle);
+        }
+    });
+    Ok(())
+}
+
+fn hide_flyout_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window(FLYOUT_LABEL) {
+        if win.is_visible().unwrap_or(false) {
+            let _ = win.hide();
+            *FLYOUT_HIDDEN_AT.lock().unwrap() = Some(Instant::now());
+        }
+    }
+}
+
+/// Shows the panel just above (or below, for a top taskbar) the tray icon,
+/// kept inside the monitor's work area.
+fn toggle_flyout(app: &tauri::AppHandle, icon: tauri::Rect) {
+    let Some(win) = app.get_webview_window(FLYOUT_LABEL) else {
+        return;
+    };
+    if win.is_visible().unwrap_or(false) {
+        hide_flyout_window(app);
+        return;
+    }
+    if FLYOUT_HIDDEN_AT
+        .lock()
+        .unwrap()
+        .is_some_and(|at| at.elapsed() < Duration::from_millis(300))
+    {
+        return;
+    }
+
+    let icon_pos = icon.position.to_physical::<f64>(1.0);
+    let icon_size = icon.size.to_physical::<f64>(1.0);
+    let center_x = icon_pos.x + icon_size.width / 2.0;
+    let monitor = app.monitor_from_point(center_x, icon_pos.y).ok().flatten();
+    let scale = monitor.as_ref().map_or(1.0, |m| m.scale_factor());
+    let (width, height) = (FLYOUT_SIZE.0 * scale, FLYOUT_SIZE.1 * scale);
+    let margin = 8.0 * scale;
+
+    let mut x = center_x - width / 2.0;
+    let mut y = icon_pos.y - height - margin;
+    if let Some(monitor) = monitor {
+        let area = monitor.work_area();
+        let (left, top) = (area.position.x as f64, area.position.y as f64);
+        let (right, bottom) = (left + area.size.width as f64, top + area.size.height as f64);
+        x = x.min(right - width - margin).max(left + margin);
+        y = if icon_pos.y >= (top + bottom) / 2.0 {
+            bottom - height - margin
+        } else {
+            top + margin
+        };
+    }
+
+    let _ = win.set_size(tauri::PhysicalSize::new(width, height));
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    let _ = win.show();
+    let _ = win.set_focus();
+}
+
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) {
+    hide_flyout_window(&app);
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+    }
+}
+
+#[tauri::command]
+fn hide_flyout(app: tauri::AppHandle) {
+    hide_flyout_window(&app);
 }
 
 fn toggle_main_window(app: &tauri::AppHandle) {
@@ -1926,6 +2038,8 @@ pub fn run() {
         .manage(StreamingState::default())
         .manage(DiagnosticState::default())
         .invoke_handler(tauri::generate_handler![
+            show_main_window,
+            hide_flyout,
             discover_devices,
             start_discovery_stream,
             stop_discovery_stream,
@@ -1973,6 +2087,7 @@ pub fn run() {
                 Ok(Ok(())) => {}
                 result => tracing::warn!(?result, "local mute recovery remains pending"),
             }
+            setup_flyout(app.handle())?;
             let tray_items = setup_tray(app.handle())?;
             app.manage(tray_items);
 

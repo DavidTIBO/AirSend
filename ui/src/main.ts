@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { groupDevices, routesFor, type Device, type DeviceKind } from "./devices";
+import type { FlyoutState } from "./flyout";
 import {
   applyStaticTranslations,
   getLang,
@@ -330,8 +331,41 @@ let latencyApplying = false;
 let latencyCooldownUntil = 0;
 let latencyTimer: number | null = null;
 
+// Tray panel (flyout.html): mirror the player state and run its requests here,
+// so both windows always share the same session logic.
+let lastDeviceName: string | null = null;
+
+function publishFlyoutState() {
+  const dev = connectedId ? known.get(connectedId) : null;
+  if (dev) lastDeviceName = dev.name;
+  const status: FlyoutState["status"] = playing
+    ? "playing"
+    : actionBusy || latencyApplying || stopping
+      ? "busy"
+      : dev ? "connected" : "idle";
+  const state: FlyoutState = {
+    name: dev?.name ?? lastDeviceName,
+    status,
+    volume: Number(volumeSlider.value),
+    lang: getLang(),
+  };
+  void emit("flyout://state", state).catch(() => {});
+}
+
+void listen("flyout://hello", () => publishFlyoutState());
+void listen<number>("flyout://volume", (event) => {
+  volumeSlider.value = String(event.payload);
+  volumeSlider.dispatchEvent(new Event("input"));
+});
+void listen("flyout://toggle", () => {
+  if (playing) void stopPlay();
+  else if (connectedId) void startPlay();
+  else void reconnectLast();
+});
+
 function updatePlayerUi() {
   const dev = connectedId ? known.get(connectedId) : null;
+  publishFlyoutState();
   playerEl.hidden = !dev;
   playBtn.disabled = stopping || ((latencyApplying || actionBusy) && !playing);
   cancelOperation.hidden = !actionBusy && !latencyApplying;
@@ -459,6 +493,7 @@ multiToggle.addEventListener("change", async () => {
 volumeSlider.addEventListener("input", () => {
   volumeRevision++;
   volumeOut.textContent = `${volumeSlider.value}%`;
+  publishFlyoutState();
   if (volumeDebounce) clearTimeout(volumeDebounce);
   volumeDebounce = window.setTimeout(async () => {
     const vol = Number(volumeSlider.value) / 100;
@@ -775,7 +810,13 @@ async function bootstrap() {
   // del tiempo el HomePod ya estará en `known` antes de que el promise de la
   // store resuelva.
   void startScan();
+  await reconnectLast();
+}
 
+/// Reconnects to the last saved HomePod and starts playback (startup and the
+/// tray panel's play button when nothing is connected).
+async function reconnectLast() {
+  if (actionBusy || latencyApplying || playing) return;
   let last: PersistedDevice | null = null;
   try {
     last = await invoke<PersistedDevice | null>("get_last_device");
@@ -783,6 +824,8 @@ async function bootstrap() {
     last = null;
   }
   if (!last) return;
+  lastDeviceName ??= last.name;
+  publishFlyoutState();
 
   statusEl.textContent = t("reconnecting", { name: last.name });
 
