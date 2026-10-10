@@ -1,4 +1,5 @@
 mod diagnostics;
+mod power;
 mod preferences;
 mod session;
 use cap_core::discovery::DiscoveryEvent;
@@ -36,6 +37,23 @@ const AUDIO_DIAGNOSTICS_INTERVAL: Duration = Duration::from_secs(10);
 // Cooldown disabled: latency changes apply immediately (each one still
 // restarts the AirPlay session).
 const LATENCY_CHANGE_COOLDOWN: Duration = Duration::ZERO;
+/// Tope para emparejar/preparar una sesión. Tras una suspensión un socket
+/// medio abierto puede no responder nunca; ningún estado de conexión debe
+/// quedarse colgado esperándolo.
+const CONNECT_DEADLINE: Duration = Duration::from_secs(30);
+/// Windows concede ~2 s entre el aviso de suspensión y el sueño real.
+const SUSPEND_TEARDOWN_BUDGET: Duration = Duration::from_millis(1500);
+
+async fn within_deadline<T>(
+    work: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    tokio::time::timeout(CONNECT_DEADLINE, work)
+        .await
+        .unwrap_or_else(|_| {
+            tracing::warn!(?CONNECT_DEADLINE, "connection attempt exceeded its deadline");
+            Err("connect_timeout".into())
+        })
+}
 
 fn latency_cooldown_remaining(last_change: Option<Instant>, now: Instant) -> Duration {
     last_change
@@ -326,6 +344,42 @@ async fn stop_discovery_stream(state: State<'_, DiscoveryState>) -> Result<(), S
         discovery.shutdown();
     }
     Ok(())
+}
+
+/// Tira el daemon mDNS y su caché: tras dormir sus sockets ya no sirven
+/// (os error 10065) y la caché repetiría receptores marcados como ausentes.
+fn reset_discovery(app: &tauri::AppHandle) {
+    let state = app.state::<DiscoveryState>();
+    if let Some(discovery) = state.inner.lock().ok().and_then(|mut slot| slot.take()) {
+        discovery.shutdown();
+    }
+    if let Ok(mut cache) = state.cache.lock() {
+        cache.clear();
+    };
+}
+
+/// Suspensión: cerrar la sesión limpiamente antes de que mueran los sockets.
+/// Reanudación: repetir el cierre por si la suspensión no dio tiempo, y dejar
+/// todo en "disconnected" para que la UI relance el escaneo.
+fn handle_power_event(app: &tauri::AppHandle, event: power::PowerEvent) {
+    tracing::info!(?event, "transición de energía de Windows");
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let task_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = stop_streaming(task_app.clone(), task_app.state::<StreamingState>()).await;
+        let _ = disconnect_device(task_app.state::<ConnectionState>()).await;
+        reset_discovery(&task_app);
+        let code = match event {
+            power::PowerEvent::Suspend => "suspend",
+            power::PowerEvent::Resume => "resume",
+        };
+        let _ = task_app.emit("airplay://power", code);
+        let _ = done_tx.send(());
+    });
+    if event == power::PowerEvent::Suspend && done_rx.recv_timeout(SUSPEND_TEARDOWN_BUDGET).is_err()
+    {
+        tracing::warn!("la sesión no terminó de cerrarse antes de la suspensión");
+    }
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -822,7 +876,7 @@ async fn start_group_streaming(
     let generation = token.generation;
     let _operation = state.operation.lock().await;
     emit_session(&app, generation, "preparing");
-    let prepared = tokio::select! { biased; _ = token.cancelled() => return Err("session_cancelled".into()), result = prepare_synchronized_stream(app.clone(), &targets, latency_ms, generation) => result };
+    let prepared = tokio::select! { biased; _ = token.cancelled() => return Err("session_cancelled".into()), result = within_deadline(prepare_synchronized_stream(app.clone(), &targets, latency_ms, generation)) => result };
     let mut active = match prepared {
         Ok(value) => value,
         Err(error) => {
@@ -884,7 +938,7 @@ async fn start_streaming(
     let prepared = tokio::select! {
         biased;
         _ = token.cancelled() => return Err("session_cancelled".into()),
-        result = prepare_stream(app.clone(), &targets, latency_ms, generation) => result,
+        result = within_deadline(prepare_stream(app.clone(), &targets, latency_ms, generation)) => result,
     };
     let mut active = match prepared {
         Ok(value) => value,
@@ -952,12 +1006,12 @@ async fn add_streaming(
         let generation = token.generation;
         let targets = [(parsed.to_string(), port, name, volume)];
         drop(slot);
-        let stream = tokio::select! { biased; _ = token.cancelled() => return Err("session_cancelled".into()), result = prepare_stream(
+        let stream = tokio::select! { biased; _ = token.cancelled() => return Err("session_cancelled".into()), result = within_deadline(prepare_stream(
             app.clone(),
             &targets,
             latency,
             generation,
-        ) => result? };
+        )) => result? };
         let info = stream
             .outputs
             .values()
@@ -996,7 +1050,7 @@ async fn add_streaming(
     let attached = tokio::select! {
         biased;
         _ = token.cancelled() => Err("session_cancelled".into()),
-        result = attach_output(active, &address, port, &name, volume, &app) => result,
+        result = within_deadline(attach_output(active, &address, port, &name, volume, &app)) => result,
     };
     if let Err(error) = attached {
         active.senders.lock().unwrap().remove(&key);
@@ -1278,7 +1332,9 @@ async fn connect_device(
     let session = tokio::select! {
         biased;
         _ = token.cancelled() => return Err("session_cancelled".into()),
-        result = pair_homepod(descriptor) => result.map_err(|e| format!("pairing falló: {e}"))?,
+        result = within_deadline(async {
+            pair_homepod(descriptor).await.map_err(|e| format!("pairing falló: {e}"))
+        }) => result?,
     };
     if let Some(mut previous) = slot.replace(session) {
         let _ =
@@ -1652,7 +1708,7 @@ async fn confirm_latency(
         stream.shutdown();
         stream.stop_outputs().await;
         drop(stream);
-        match tokio::select! { biased; _ = token.cancelled() => Err("session_cancelled".into()), result = prepare_targets(app.clone(), &targets, latency_ms, generation, group_mode) => result }
+        match tokio::select! { biased; _ = token.cancelled() => Err("session_cancelled".into()), result = within_deadline(prepare_targets(app.clone(), &targets, latency_ms, generation, group_mode)) => result }
         {
             Ok(replacement) => *slot = Some(replacement),
             Err(error) => {
@@ -1660,13 +1716,13 @@ async fn confirm_latency(
                 if token.generation != state.control.current() {
                     return Err(error);
                 }
-                let restored = tokio::select! { biased; _ = token.cancelled() => return Err("session_cancelled".into()), result = prepare_targets(
+                let restored = tokio::select! { biased; _ = token.cancelled() => return Err("session_cancelled".into()), result = within_deadline(prepare_targets(
                     app.clone(),
                     &targets,
                     old_latency_ms,
                     generation,
                     group_mode,
-                ) => result };
+                )) => result };
                 if let Ok(restored) = restored {
                     *slot = Some(restored);
                 }
@@ -1920,6 +1976,9 @@ pub fn run() {
             let tray_items = setup_tray(app.handle())?;
             app.manage(tray_items);
 
+            let power_app = app.handle().clone();
+            power::watch(move |event| handle_power_event(&power_app, event));
+
             // Cerrar la ventana (X) la oculta en vez de matar el proceso —
             // la app sigue viva en el tray. "Salir" del menú del tray sí
             // termina el proceso.
@@ -2075,7 +2134,7 @@ fn start_session_monitor(app: tauri::AppHandle, generation: u64) {
                         _ = token.cancelled() => return,
                         result = async {
                             tokio::time::sleep(Duration::from_secs(delay)).await;
-                            prepare_targets(app.clone(), &targets, latency_ms, generation, group_mode).await
+                            within_deadline(prepare_targets(app.clone(), &targets, latency_ms, generation, group_mode)).await
                         } => result,
                     };
                     match restored {
@@ -2111,6 +2170,8 @@ fn start_session_monitor(app: tauri::AppHandle, generation: u64) {
                     code: reason.into(),
                 },
             );
+            // Sin esto la fase se quedaba en "streaming" con la sesión ya destruida.
+            emit_session(&app, generation, "disconnected");
             return;
         }
     });

@@ -52,7 +52,44 @@ function setupAsyncErrorListener() {
     if (event.payload.code === "disconnected" && !actionBusy) { playing = false; activeRoutes.clear(); }
     updatePlayerUi();
   });
+  // El backend ya cerró la sesión y el daemon mDNS; al despertar hay que
+  // descubrir de nuevo porque los receptores conocidos pueden estar obsoletos.
+  void listen<"suspend" | "resume">("airplay://power", (event) => {
+    resetToDisconnected();
+    if (event.payload !== "resume") return;
+    showToast(t("power_resumed"));
+    void startScan();
+    // La red puede tardar unos segundos en volver tras el despertar.
+    window.setTimeout(() => { if (known.size === 0) void startScan(); }, 10_000);
+  });
 }
+
+// Abandona cualquier operación en curso: sus resultados tardíos se ignoran
+// gracias a `intentSequence`.
+function resetToDisconnected() {
+  ++intentSequence;
+  actionBusy = false; stopping = false; latencyApplying = false;
+  connectingId = null; connectedId = null; connectedRoute = null;
+  playing = false; synchronizedPlaying = false; activeRoutes.clear();
+  playerStatus.textContent = "";
+  updatePlayerUi(); render();
+}
+
+// Último recurso: ninguna operación puede dejar la UI bloqueada. El backend
+// corta cada intento de conexión a los 30 s; el margen cubre el cierre.
+const OPERATION_DEADLINE_MS = 45_000;
+let busySince: number | null = null;
+window.setInterval(() => {
+  if (!actionBusy && !latencyApplying) { busySince = null; return; }
+  busySince ??= Date.now();
+  if (Date.now() - busySince < OPERATION_DEADLINE_MS) return;
+  busySince = null;
+  // Cancelar en el backend libera cualquier tarea que siga esperando a la red.
+  void invoke("stop_streaming").catch(() => {});
+  void invoke("disconnect_device").catch(() => {});
+  resetToDisconnected();
+  showToast(t("operation_timeout"));
+}, 1000);
 
 const known = new Map<string, Device>();
 const discovered = new Map<string, Device>();
