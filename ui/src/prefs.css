@@ -99,3 +99,5 @@ button.secondary { background: var(--border); color: var(--fg); }
 .status { display: inline-block; margin-top: 6px; }
 
 .latency-control { margin: 0; padding: 0; border: 0; background: none; }
+
+label.check + label.check { margin-top: 8px; }

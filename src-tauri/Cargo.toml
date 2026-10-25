@@ -28,6 +28,7 @@ cap-core = { path = "../crates/airplay-core" }
 audio-capture = { path = "../crates/audio-capture" }
 audio-encode = { path = "../crates/audio-encode" }
 crossbeam-channel = "0.5"
+tauri-plugin-autostart = "=2.5.1"
 
 [features]
 default = ["custom-protocol"]

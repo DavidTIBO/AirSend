@@ -1578,6 +1578,65 @@ fn save_multi_device(app: tauri::AppHandle, enabled: bool) -> Result<(), String>
     store.save().map_err(|e| e.to_string())
 }
 
+const KEY_GENERAL: &str = "general";
+
+/// Preferences > General.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+#[serde(default)]
+struct GeneralSettings {
+    /// Reconnect to the last receiver and start playing when AirSend starts.
+    auto_play: bool,
+    /// Start hidden in the notification area instead of opening the window.
+    start_minimized: bool,
+    /// Reconnect automatically (up to 3 attempts) when a session fails.
+    reconnect_on_error: bool,
+}
+
+impl Default for GeneralSettings {
+    fn default() -> Self {
+        Self {
+            auto_play: true,
+            start_minimized: false,
+            reconnect_on_error: false,
+        }
+    }
+}
+
+fn load_general_settings(app: &tauri::AppHandle) -> GeneralSettings {
+    app.store(STORE_FILE)
+        .ok()
+        .and_then(|store| store.get(KEY_GENERAL))
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn get_general_settings(app: tauri::AppHandle) -> GeneralSettings {
+    load_general_settings(&app)
+}
+
+#[tauri::command]
+fn save_general_settings(app: tauri::AppHandle, settings: GeneralSettings) -> Result<(), String> {
+    let store = app.store(STORE_FILE).map_err(|e| e.to_string())?;
+    store.set(KEY_GENERAL, serde_json::to_value(settings).map_err(|e| e.to_string())?);
+    store.save().map_err(|e| e.to_string())
+}
+
+/// "Start AirSend when Windows starts": an entry in the user's Run key,
+/// managed by tauri-plugin-autostart.
+#[tauri::command]
+fn get_start_at_login(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_start_at_login(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let launcher = app.autolaunch();
+    if enabled { launcher.enable() } else { launcher.disable() }.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn get_multi_device(app: tauri::AppHandle) -> Result<bool, String> {
     let store = app.store(STORE_FILE).map_err(|e| e.to_string())?;
@@ -2076,6 +2135,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(DiscoveryState::default())
         .manage(ConnectionState::default())
         .manage(StreamingState::default())
@@ -2085,6 +2148,10 @@ pub fn run() {
             hide_main_window,
             open_preferences,
             quit_app,
+            get_general_settings,
+            save_general_settings,
+            get_start_at_login,
+            set_start_at_login,
             discover_devices,
             start_discovery_stream,
             stop_discovery_stream,
@@ -2152,15 +2219,18 @@ pub fn run() {
             }
             // Open next to the tray icon on startup, like TuneBlade, as soon as
             // the UI has measured its content (fit_main_window); show it anyway
-            // after a few seconds if the UI never reports.
-            MAIN_STARTUP_PENDING.store(true, std::sync::atomic::Ordering::SeqCst);
-            let startup_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(3)).await;
-                if MAIN_STARTUP_PENDING.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                    show_main_window(&startup_app, tray_icon_rect(&startup_app));
-                }
-            });
+            // after a few seconds if the UI never reports. "Start minimized"
+            // keeps it in the notification area.
+            if !load_general_settings(app.handle()).start_minimized {
+                MAIN_STARTUP_PENDING.store(true, std::sync::atomic::Ordering::SeqCst);
+                let startup_app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    if MAIN_STARTUP_PENDING.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        show_main_window(&startup_app, tray_icon_rect(&startup_app));
+                    }
+                });
+            }
 
             Ok(())
         })
@@ -2271,7 +2341,9 @@ fn start_session_monitor(app: tauri::AppHandle, generation: u64) {
             if state.control.current() != generation {
                 return;
             }
-            let reconnect = targets.iter().any(|(ip, port, _, _)| {
+            // Global setting (Preferences > General), or the legacy per-receiver flag.
+            let reconnect = load_general_settings(&app).reconnect_on_error
+                || targets.iter().any(|(ip, port, _, _)| {
                 let discovery = app.state::<DiscoveryState>();
                 let cache = discovery.cache.lock().unwrap();
                 let id = cache

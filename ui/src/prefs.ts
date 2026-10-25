@@ -23,6 +23,59 @@ for (const button of navButtons) {
   });
 }
 
+// ── General ─────────────────────────────────────────────────────────────────
+
+interface GeneralSettings { auto_play: boolean; start_minimized: boolean; reconnect_on_error: boolean }
+const startAtLogin = $<HTMLInputElement>("start-at-login");
+const startMinimized = $<HTMLInputElement>("start-minimized");
+const autoPlay = $<HTMLInputElement>("auto-play");
+const reconnectOnError = $<HTMLInputElement>("reconnect-on-error");
+const generalStatus = $<HTMLSpanElement>("general-status");
+let general: GeneralSettings = { auto_play: true, start_minimized: false, reconnect_on_error: false };
+
+function showGeneral() {
+  autoPlay.checked = general.auto_play;
+  startMinimized.checked = general.start_minimized;
+  reconnectOnError.checked = general.reconnect_on_error;
+}
+
+async function saveGeneral(patch: Partial<GeneralSettings>) {
+  const next = { ...general, ...patch };
+  try {
+    await invoke("save_general_settings", { settings: next });
+    general = next;
+    generalStatus.textContent = "";
+  } catch (err) {
+    generalStatus.textContent = String(err);
+  }
+  showGeneral();
+}
+
+void invoke<GeneralSettings>("get_general_settings").then((settings) => {
+  general = settings;
+  showGeneral();
+}).catch((e) => { generalStatus.textContent = String(e); });
+void invoke<boolean>("get_start_at_login").then((enabled) => {
+  startAtLogin.checked = enabled;
+}).catch((e) => { generalStatus.textContent = String(e); });
+
+startAtLogin.addEventListener("change", async () => {
+  const enabled = startAtLogin.checked;
+  startAtLogin.disabled = true;
+  try {
+    await invoke("set_start_at_login", { enabled });
+    generalStatus.textContent = "";
+  } catch (err) {
+    startAtLogin.checked = !enabled;
+    generalStatus.textContent = String(err);
+  } finally {
+    startAtLogin.disabled = false;
+  }
+});
+startMinimized.addEventListener("change", () => void saveGeneral({ start_minimized: startMinimized.checked }));
+autoPlay.addEventListener("change", () => void saveGeneral({ auto_play: autoPlay.checked }));
+reconnectOnError.addEventListener("change", () => void saveGeneral({ reconnect_on_error: reconnectOnError.checked }));
+
 // ── AirPlay streaming ───────────────────────────────────────────────────────
 
 const latency = $<HTMLInputElement>("latency");
@@ -78,9 +131,6 @@ localBuffer.addEventListener("change", async () => {
   }
 });
 
-const reconnect = $<HTMLInputElement>("reconnect");
-const reconnectLabel = $<HTMLSpanElement>("reconnect-label");
-reconnect.addEventListener("change", () => send({ type: "reconnect", enabled: reconnect.checked }));
 
 // ── Audio capture ───────────────────────────────────────────────────────────
 
@@ -241,11 +291,6 @@ function applyState() {
   const locked = state.playing || state.busy;
   refreshLatency();
   localBuffer.disabled = locked;
-  reconnect.checked = state.reconnect;
-  reconnect.disabled = !state.receiverName;
-  reconnectLabel.textContent = state.receiverName
-    ? `Reconnect ${state.receiverName} after a failure (up to 3 attempts)`
-    : "Reconnect the current receiver after a failure (up to 3 attempts)";
   audioSource.disabled = locked;
   muteLocal.disabled = !windowsAudioAvailable || locked;
   multi.checked = state.multiDevice;

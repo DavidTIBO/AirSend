@@ -11,7 +11,6 @@ export interface PrefsState {
   activeCount: number;
   latencyMs: number;
   latencyApplying: boolean;
-  reconnect: boolean;
   stereoPairs: boolean;
   synchronized: boolean;
   groupCandidates: { id: string; name: string }[];
@@ -21,7 +20,6 @@ export interface PrefsState {
 export type PrefsAction =
   | { type: "multi"; enabled: boolean }
   | { type: "latency"; ms: number }
-  | { type: "reconnect"; enabled: boolean }
   | { type: "stereoPairs"; enabled: boolean }
   | { type: "groupPlay"; first: string; second: string }
   | { type: "rescan" };

@@ -10,14 +10,42 @@
   <body>
     <div class="prefs">
       <nav class="sidebar">
-        <button type="button" data-page="streaming" class="active">AirPlay streaming</button>
+        <button type="button" data-page="general" class="active">General</button>
+        <button type="button" data-page="streaming">AirPlay streaming</button>
         <button type="button" data-page="capture">Audio capture</button>
         <button type="button" data-page="receivers">AirPlay receivers</button>
         <button type="button" data-page="diagnostics">Diagnostics</button>
       </nav>
 
       <div class="pages">
-        <section data-page="streaming">
+        <section data-page="general">
+          <h2>General</h2>
+          <div class="group">
+            <h3>Startup</h3>
+            <label class="check">
+              <input id="start-at-login" type="checkbox" />
+              <span>Start AirSend when Windows starts</span>
+            </label>
+            <label class="check">
+              <input id="start-minimized" type="checkbox" />
+              <span>Start minimized in the notification area</span>
+            </label>
+            <label class="check">
+              <input id="auto-play" type="checkbox" />
+              <span>Reconnect to the last receiver and start playing when AirSend starts</span>
+            </label>
+            <span id="general-status" class="status" role="status"></span>
+          </div>
+          <div class="group">
+            <h3>Connection</h3>
+            <label class="check">
+              <input id="reconnect-on-error" type="checkbox" />
+              <span>Reconnect automatically when a connection fails (up to 3 attempts)</span>
+            </label>
+          </div>
+        </section>
+
+        <section data-page="streaming" hidden>
           <h2>AirPlay streaming</h2>
           <div class="group">
             <h3>Delay</h3>
@@ -49,13 +77,6 @@
             </label>
             <p class="hint">May reduce delay, but may also cause dropouts. Stop playback before changing it.</p>
             <span id="local-buffer-status" class="status" role="status"></span>
-          </div>
-          <div class="group">
-            <h3>Connection</h3>
-            <label class="check">
-              <input id="reconnect" type="checkbox" />
-              <span id="reconnect-label">Reconnect the current receiver after a failure (up to 3 attempts)</span>
-            </label>
           </div>
         </section>
 

@@ -28,7 +28,7 @@ const known = new Map<string, Device>();
 const discovered = new Map<string, Device>();
 let unlisten: UnlistenFn | null = null;
 let unlistenRemoved: UnlistenFn | null = null;
-/// Primary receiver: the one per-receiver settings (latency, reconnect) apply to.
+/// Primary receiver: the one per-receiver settings (latency) apply to.
 let connectedId: string | null = null;
 let connectingId: string | null = null;
 let connectedRoute: Device | null = null;
@@ -46,7 +46,6 @@ let sessionRecovering = false;
 let primaryVolume = 20;
 let multiDevice = false;
 let confirmedLatencyMs = 3000;
-let receiverReconnect = false;
 let showStereoPairs = false;
 // Per-receiver volume (0-100) for the other rows: saved preferences, or the
 // receiver itself while it plays.
@@ -158,7 +157,6 @@ async function streamTo(device: Device, command: "start_streaming" | "add_stream
       if (preferences && command === "start_streaming") {
         confirmedLatencyMs = preferences.latency_ms;
         primaryVolume = Math.round(preferences.volume * 100);
-        receiverReconnect = preferences.reconnect;
       }
       return { route, ip };
     } catch (err) {
@@ -353,7 +351,6 @@ async function loadReceiverPreferences(id: string) {
   primaryVolume = Math.round(preferences.volume * 100);
   deviceVolumes.set(id, primaryVolume);
   if (!playing) confirmedLatencyMs = preferences.latency_ms;
-  receiverReconnect = preferences.reconnect;
   publishState();
 }
 
@@ -481,7 +478,6 @@ function publishState() {
     activeCount: activeRoutes.size,
     latencyMs: confirmedLatencyMs,
     latencyApplying,
-    reconnect: receiverReconnect,
     stereoPairs: showStereoPairs,
     synchronized: synchronizedPlaying,
     groupCandidates: groupCandidates(),
@@ -574,10 +570,6 @@ async function handlePrefsAction(action: PrefsAction) {
       case "latency":
         await applyLatency(action.ms);
         break;
-      case "reconnect":
-        receiverReconnect = action.enabled;
-        if (connectedId) await patchReceiverPreferences(connectedId, { reconnect: action.enabled });
-        break;
       case "stereoPairs":
         if (playing) throw new Error(t("stop_before_pairs_change"));
         showStereoPairs = action.enabled;
@@ -668,7 +660,9 @@ async function initialize() {
     invoke<boolean>("get_multi_device").then((enabled) => { multiDevice = enabled; }).catch(() => {}),
   ]);
   void startScan();
-  await reconnectLast();
+  // Preferences > General > "Reconnect to the last receiver and start playing".
+  const general = await invoke<{ auto_play: boolean }>("get_general_settings").catch(() => ({ auto_play: true }));
+  if (general.auto_play) await reconnectLast();
 }
 
 // Keeps the receivers' real volumes and the group state up to date.
