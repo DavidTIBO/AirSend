@@ -1950,6 +1950,28 @@ fn hide_main_window(app: tauri::AppHandle) {
     hide_main(&app);
 }
 
+/// Opens the Preferences window (created on first use, focused afterwards).
+/// Async on purpose: creating a window from a synchronous command can
+/// deadlock on Windows.
+#[tauri::command]
+async fn open_preferences(app: tauri::AppHandle) -> Result<(), String> {
+    hide_main(&app);
+    if let Some(win) = app.get_webview_window("prefs") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+    tauri::WebviewWindowBuilder::new(&app, "prefs", tauri::WebviewUrl::App("prefs.html".into()))
+        .title("AirSend Preferences")
+        .inner_size(640.0, 460.0)
+        .min_inner_size(520.0, 360.0)
+        .center()
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Stops streaming, releases the receivers and exits (tray "Quit" and the
 /// power button of the compact window).
 #[tauri::command]
@@ -2061,6 +2083,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             fit_main_window,
             hide_main_window,
+            open_preferences,
             quit_app,
             discover_devices,
             start_discovery_stream,

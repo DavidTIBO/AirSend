@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AirSend Preferences</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="stylesheet" href="/src/prefs.css" />
+  </head>
+  <body>
+    <div class="prefs">
+      <nav class="sidebar">
+        <button type="button" data-page="streaming" class="active">AirPlay streaming</button>
+        <button type="button" data-page="capture">Audio capture</button>
+        <button type="button" data-page="receivers">AirPlay receivers</button>
+        <button type="button" data-page="diagnostics">Diagnostics</button>
+      </nav>
+
+      <div class="pages">
+        <section data-page="streaming">
+          <h2>AirPlay streaming</h2>
+          <div class="group">
+            <h3>Delay</h3>
+            <div class="latency-control">
+              <label class="latency-label" for="latency">
+                <span>Requested buffer limit</span>
+                <output id="latency-out" for="latency">3000 ms</output>
+              </label>
+              <input id="latency" type="range" min="0" max="3000" step="100" value="3000" />
+              <div class="latency-scale">
+                <span>Less delay</span>
+                <span>More stable</span>
+              </div>
+              <p class="hint">
+                Applies to the current receiver. If audio is playing, the connection briefly
+                restarts. Low values reduce the delay but may cause dropouts on a busy Wi-Fi.
+              </p>
+              <div class="latency-actions">
+                <button id="latency-confirm" type="button">Apply</button>
+                <span id="latency-status" class="status" role="status" aria-live="polite"></span>
+              </div>
+            </div>
+          </div>
+          <div class="group">
+            <h3>Buffering</h3>
+            <label class="check">
+              <input id="local-buffer" type="checkbox" />
+              <span>Reduced local buffer (experimental)</span>
+            </label>
+            <p class="hint">May reduce delay, but may also cause dropouts. Stop playback before changing it.</p>
+            <span id="local-buffer-status" class="status" role="status"></span>
+          </div>
+          <div class="group">
+            <h3>Connection</h3>
+            <label class="check">
+              <input id="reconnect" type="checkbox" />
+              <span id="reconnect-label">Reconnect the current receiver after a failure (up to 3 attempts)</span>
+            </label>
+          </div>
+        </section>
+
+        <section data-page="capture" hidden>
+          <h2>Audio capture</h2>
+          <div class="group">
+            <h3>Windows audio source</h3>
+            <div class="row">
+              <select id="audio-source"><option value="">Default output</option></select>
+              <button id="audio-refresh" type="button" class="secondary">Refresh</button>
+            </div>
+            <p class="hint">Captures the apps already playing on this output; it does not redirect them. Stop playback before changing it.</p>
+          </div>
+          <div class="group">
+            <h3>Local output</h3>
+            <label class="check">
+              <input id="mute-local" type="checkbox" />
+              <span>Mute local output while streaming (experimental)</span>
+            </label>
+            <p class="hint">Waits for audio and checks that capture keeps its signal. Restores the output if capture stops, and when playback stops or fails.</p>
+            <span id="audio-status" class="status" role="status"></span>
+          </div>
+        </section>
+
+        <section data-page="receivers" hidden>
+          <h2>AirPlay receivers</h2>
+          <div class="group">
+            <h3>Several receivers</h3>
+            <label class="check">
+              <input id="multi-device" type="checkbox" />
+              <span>Play on multiple devices</span>
+            </label>
+            <p class="hint">Experimental: starting another receiver while one is playing adds it to the current audio instead of switching. Receivers may not be perfectly synchronized.</p>
+            <span id="multi-status" class="status" role="status"></span>
+          </div>
+          <div class="group">
+            <h3>Stereo pairs and synchronization (experimental)</h3>
+            <label class="check">
+              <input id="stereo-pairs" type="checkbox" />
+              <span>Show pairs configured in Apple Home</span>
+            </label>
+            <p class="hint">Try simultaneous playback on two HomePods. Losing a member stops the whole group.</p>
+            <div class="row">
+              <select id="group-first" aria-label="First HomePod"></select>
+              <select id="group-second" aria-label="Second HomePod"></select>
+            </div>
+            <div class="row">
+              <button id="group-play" type="button">Test synchronized playback</button>
+              <span id="group-status" class="status" role="status"></span>
+            </div>
+          </div>
+          <div class="group">
+            <h3>Add a receiver by IP</h3>
+            <p class="hint">If your HomePod does not appear (routers that do not propagate mDNS), enter its IP or IP:port, for example 192.168.1.50:7000. Use [address]:port for IPv6.</p>
+            <div class="row">
+              <input id="manual-ip" placeholder="192.168.1.50[:7000]" />
+              <input id="manual-name" placeholder="Name (optional)" />
+              <button id="manual-add" type="button">Add</button>
+            </div>
+            <span id="manual-status" class="status" role="status"></span>
+          </div>
+          <div class="group">
+            <h3>Discovery</h3>
+            <div class="row">
+              <button id="rescan" type="button" class="secondary">Scan for receivers again</button>
+              <span id="rescan-status" class="status" role="status"></span>
+            </div>
+          </div>
+        </section>
+
+        <section data-page="diagnostics" hidden>
+          <h2>Diagnostics</h2>
+          <div class="group">
+            <h3>Audio diagnostics</h3>
+            <p class="hint">Download recent session metrics to compare delay and dropouts. Device names, IP addresses and credentials are excluded. Local measurements do not represent the audible HomePod delay.</p>
+            <div class="row">
+              <button id="diagnostics-export" type="button">Download diagnostics</button>
+              <span id="diagnostics-status" class="status" role="status" aria-live="polite"></span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <script type="module" src="/src/prefs.ts"></script>
+  </body>
+</html>

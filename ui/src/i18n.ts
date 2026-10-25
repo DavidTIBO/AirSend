@@ -42,6 +42,8 @@ const EN: Dict = {
   rx_stop: "Stop {name}",
   rx_volume: "Volume of {name}",
   settings: "Settings",
+  operation_busy: "Another operation is in progress, try again in a moment",
+  stop_before_pairs_change: "Stop playback before changing how pairs are shown",
   quit: "Quit AirSend",
   searching_receivers: "Searching for AirPlay receivers…",
   stop_before_source_change: "Stop playback before changing the source",
