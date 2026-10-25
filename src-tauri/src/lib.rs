@@ -77,7 +77,8 @@ mod latency_tests {
         assert_eq!(decode_latency(&serde_json::json!("video")), Some(2000));
         assert_eq!(decode_latency(&serde_json::json!("gaming")), Some(1000));
         assert_eq!(decode_latency(&serde_json::json!(700)), Some(700));
-        assert_eq!(decode_latency(&serde_json::json!(750)), None);
+        assert_eq!(decode_latency(&serde_json::json!(750)), Some(750));
+        assert_eq!(decode_latency(&serde_json::json!(725)), None);
     }
 }
 
@@ -1493,14 +1494,6 @@ fn patch_receiver_preferences(
     save_receiver_preferences(app, receiver_id, preferences)
 }
 
-#[tauri::command]
-fn open_latest_release(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri_plugin_shell::ShellExt;
-    app.shell()
-        .open("https://github.com/Pabldi08/AirSend/releases/latest", None)
-        .map_err(|e| e.to_string())
-}
-
 // ── Persistencia (C1) ────────────────────────────────────────────────────────
 //
 // Usamos `tauri-plugin-store` para volcar a `%APPDATA%/<bundle-id>/settings.json`
@@ -2133,7 +2126,6 @@ pub fn run() {
     let _log_guard = init_tracing();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -2189,7 +2181,6 @@ pub fn run() {
             get_receiver_preferences,
             save_receiver_preferences,
             patch_receiver_preferences,
-            open_latest_release,
         ])
         .setup(|app| {
             let journal = app.path().app_data_dir()?.join("local-mute-recovery.json");
