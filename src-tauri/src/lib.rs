@@ -2126,6 +2126,11 @@ pub fn run() {
     let _log_guard = init_tracing();
 
     tauri::Builder::default()
+        // Must be the first plugin: a second launch exits immediately and the
+        // running instance shows its window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app, tray_icon_rect(app));
+        }))
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
