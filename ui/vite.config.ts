@@ -11,8 +11,5 @@ export default defineConfig({
     target: "es2021",
     minify: "esbuild",
     sourcemap: false,
-    rollupOptions: {
-      input: { main: "index.html", flyout: "flyout.html" },
-    },
   },
 });

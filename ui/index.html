@@ -7,20 +7,32 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <main>
-      <header>
-        <div class="header-row">
-          <h1>AirSend</h1>
-        </div>
-        <p class="subtitle" data-i18n="subtitle">Send your Windows audio to your HomePod</p>
+    <div id="app">
+    <div class="compact">
+      <header class="bar">
+        <span class="app-title">AirSend</span>
+        <button id="settings-toggle" class="icon" type="button" data-i18n-attr="title:settings,aria-label:settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+          </svg>
+        </button>
+        <button id="quit" class="icon" type="button" data-i18n-attr="title:quit,aria-label:quit">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0" />
+          </svg>
+        </button>
       </header>
+      <ul id="devices" class="receivers"></ul>
+      <p id="empty" class="empty" data-i18n="searching_receivers">Searching for AirPlay receivers…</p>
+    </div>
+    <main id="advanced" hidden>
       <section>
         <div class="row">
           <button id="scan" data-i18n="scan">Scan devices</button>
           <button id="operation-cancel" type="button" hidden data-i18n="cancel">Cancel</button>
           <span id="status" class="status"></span>
         </div>
-        <ul id="devices"></ul>
         <div class="multi-control">
           <label for="multi-device">
             <input id="multi-device" type="checkbox" />
@@ -46,12 +58,14 @@
           <button id="group-play" type="button" data-i18n="group_play">Test synchronized playback</button>
           <span id="group-status" class="status" role="status"></span>
         </details>
-        <div id="player" class="player" hidden>
-          <div class="player-row">
+        <div id="player" class="player">
+          <!-- Playback and volume now live in the receiver rows; these controls
+               stay hidden because the session logic still uses them. -->
+          <div class="player-row" hidden>
             <button id="play-stop" class="play" data-i18n="play_generic">▶ Play PC audio</button>
-            <span id="player-status" class="status"></span>
           </div>
-          <label class="vol">
+          <span id="player-status" class="status"></span>
+          <label class="vol" hidden>
             <span data-i18n="volume">Volume</span>
             <input id="volume" type="range" min="0" max="100" value="20" />
             <output id="vol-out">20%</output>
@@ -64,7 +78,7 @@
             <p class="hint" data-i18n="local_buffer_hint">May reduce delay, but may also cause dropouts. Stop playback before changing it. The HomePod can add its own delay.</p>
           </div>
           <label><input id="auto-reconnect" type="checkbox" /><span data-i18n="auto_reconnect">Reconnect this receiver after failure (up to 3 attempts)</span></label>
-          <div id="receiver-volumes"></div>
+          <div id="receiver-volumes" hidden></div>
           <div class="latency-control">
             <label class="latency-label" for="latency">
               <span data-i18n="latency">Requested buffer limit</span>
@@ -113,6 +127,7 @@
         <button id="check-updates" type="button" data-i18n="check_updates">Check for updates</button>
       </section>
     </main>
+    </div>
     <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
       <h2 id="confirm-title"></h2>
       <p id="confirm-message"></p>

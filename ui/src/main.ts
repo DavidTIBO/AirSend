@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { groupDevices, routesFor, type Device, type DeviceKind } from "./devices";
-import type { FlyoutState } from "./flyout";
 import { applyStaticTranslations, t } from "./i18n";
 
 const KIND_LABEL: Record<DeviceKind, string> = {
@@ -12,6 +11,12 @@ const KIND_LABEL: Record<DeviceKind, string> = {
 };
 
 const devicesList = document.getElementById("devices") as HTMLUListElement;
+const emptyEl = document.getElementById("empty") as HTMLParagraphElement;
+window.addEventListener("pointerup", () => {
+  if (!draggingVolume) return;
+  draggingVolume = false;
+  if (renderPending) render();
+});
 const scanBtn = document.getElementById("scan") as HTMLButtonElement;
 const statusEl = document.getElementById("status") as HTMLSpanElement;
 const toastEl = document.getElementById("toast") as HTMLDivElement;
@@ -42,10 +47,11 @@ function setupAsyncErrorListener() {
   void listen<{generation: number; code: string}>("airplay://session", (event) => {
     if (event.payload.generation < activeGeneration) return;
     activeGeneration = event.payload.generation;
+    sessionRecovering = event.payload.code === "recovering";
     if (event.payload.code === "recovering") { playing = true; playerStatus.textContent = t("session_recovering"); }
     if (event.payload.code === "streaming") { playing = true; playerStatus.textContent = t("player_playing"); }
     if (event.payload.code === "disconnected" && !actionBusy) { playing = false; activeRoutes.clear(); }
-    updatePlayerUi();
+    updatePlayerUi(); render();
   });
   // El backend ya cerró la sesión y el daemon mDNS; al despertar hay que
   // descubrir de nuevo porque los receptores conocidos pueden estar obsoletos.
@@ -99,6 +105,15 @@ let activeGeneration = 0;
 let intentSequence = 0;
 let stopping = false;
 let volumeRevision = 0;
+let sessionRecovering = false;
+// Compact rows: per-receiver volume (0-100). The primary receiver mirrors
+// `volumeSlider`; the others come from their saved preferences or, while they
+// play, from the receiver itself.
+const deviceVolumes = new Map<string, number>();
+const loadingVolumes = new Set<string>();
+// Re-rendering replaces the sliders, so it waits until a drag ends.
+let draggingVolume = false;
+let renderPending = false;
 
 const multiToggle = document.getElementById("multi-device") as HTMLInputElement;
 const confirmDialog = document.getElementById("confirm-dialog") as HTMLDialogElement;
@@ -162,9 +177,9 @@ async function streamTo(device: Device, command: "start_streaming" | "add_stream
   throw lastError;
 }
 
-async function connect(device: Device) {
+async function connect(device: Device, confirmSwitch = true) {
   if (actionBusy || latencyApplying) return;
-  if (playing && !multiToggle.checked) {
+  if (confirmSwitch && playing && !multiToggle.checked) {
     const current = connectedId ? known.get(connectedId)?.name ?? t("player_playing") : t("player_playing");
     const confirmed = await askConfirmation(
       t("switch_title"),
@@ -217,6 +232,7 @@ async function connect(device: Device) {
     await loadReceiverPreferences(device.id);
   } catch (err) {
     statusEl.textContent = t("error_prefix", { err: String(err) });
+    showToast(t("error_prefix", { err: String(err) }));
   } finally {
     actionBusy = false;
     connectingId = null;
@@ -262,7 +278,6 @@ async function disconnect(device: Device) {
   }
 }
 
-const playerEl = document.getElementById("player") as HTMLDivElement;
 const playBtn = document.getElementById("play-stop") as HTMLButtonElement;
 const playerStatus = document.getElementById("player-status") as HTMLSpanElement;
 const volumeSlider = document.getElementById("volume") as HTMLInputElement;
@@ -325,41 +340,8 @@ let latencyApplying = false;
 let latencyCooldownUntil = 0;
 let latencyTimer: number | null = null;
 
-// Tray panel (flyout.html): mirror the player state and run its requests here,
-// so both windows always share the same session logic.
-let lastDeviceName: string | null = null;
-
-function publishFlyoutState() {
-  const dev = connectedId ? known.get(connectedId) : null;
-  if (dev) lastDeviceName = dev.name;
-  const status: FlyoutState["status"] = playing
-    ? "playing"
-    : actionBusy || latencyApplying || stopping
-      ? "busy"
-      : dev ? "connected" : "idle";
-  const state: FlyoutState = {
-    name: dev?.name ?? lastDeviceName,
-    status,
-    volume: Number(volumeSlider.value),
-  };
-  void emit("flyout://state", state).catch(() => {});
-}
-
-void listen("flyout://hello", () => publishFlyoutState());
-void listen<number>("flyout://volume", (event) => {
-  volumeSlider.value = String(event.payload);
-  volumeSlider.dispatchEvent(new Event("input"));
-});
-void listen("flyout://toggle", () => {
-  if (playing) void stopPlay();
-  else if (connectedId) void startPlay();
-  else void reconnectLast();
-});
-
 function updatePlayerUi() {
   const dev = connectedId ? known.get(connectedId) : null;
-  publishFlyoutState();
-  playerEl.hidden = !dev;
   playBtn.disabled = stopping || ((latencyApplying || actionBusy) && !playing);
   cancelOperation.hidden = !actionBusy && !latencyApplying;
   audioSource.disabled = playing || actionBusy || latencyApplying;
@@ -403,6 +385,7 @@ async function startPlay() {
     void invoke("save_volume", { volume: vol });
   } catch (err) {
     playerStatus.textContent = t("error_prefix", { err: String(err) });
+    showToast(t("error_prefix", { err: String(err) }));
   } finally {
     actionBusy = false;
     updatePlayerUi();
@@ -486,7 +469,6 @@ multiToggle.addEventListener("change", async () => {
 volumeSlider.addEventListener("input", () => {
   volumeRevision++;
   volumeOut.textContent = `${volumeSlider.value}%`;
-  publishFlyoutState();
   if (volumeDebounce) clearTimeout(volumeDebounce);
   volumeDebounce = window.setTimeout(async () => {
     const vol = Number(volumeSlider.value) / 100;
@@ -562,47 +544,144 @@ latencyConfirm.addEventListener("click", async () => {
   }
 });
 
+const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/></svg>';
+const SPEAKER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="5"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7.5" r="1"/></svg>';
+
+function isPlayingOn(d: Device) {
+  return playing && activeRoutes.has(d.id);
+}
+
+function rowStatus(d: Device): string {
+  if (isPlayingOn(d)) return sessionRecovering ? "recovering" : "playing";
+  if (connectingId === d.id || (actionBusy && !playing && connectedId === d.id)) return "connecting";
+  if (d.available === false) return "unavailable";
+  return "disconnected";
+}
+
+function rowVolume(d: Device): number {
+  if (d.id === connectedId) return Number(volumeSlider.value);
+  const known = deviceVolumes.get(d.id);
+  if (known !== undefined) return known;
+  if (!loadingVolumes.has(d.id)) {
+    loadingVolumes.add(d.id);
+    void invoke<ReceiverPreferences>("get_receiver_preferences", { receiverId: d.id })
+      .then((prefs) => { deviceVolumes.set(d.id, Math.round(prefs.volume * 100)); render(); })
+      .catch(() => {})
+      .finally(() => loadingVolumes.delete(d.id));
+  }
+  return Number(volumeSlider.value);
+}
+
+let rowVolumeTimer: number | undefined;
+function setRowVolume(d: Device, pct: number) {
+  ++volumeRevision;
+  deviceVolumes.set(d.id, pct);
+  const volume = pct / 100;
+  if (d.id === connectedId) {
+    volumeSlider.value = String(pct);
+    volumeOut.textContent = `${pct}%`;
+  }
+  clearTimeout(rowVolumeTimer);
+  rowVolumeTimer = window.setTimeout(() => {
+    const route = isPlayingOn(d) ? activeRoutes.get(d.id) : undefined;
+    const ip = route?.addresses.find((a) => !a.includes(":")) ?? route?.addresses[0];
+    if (d.id === connectedId) void invoke("save_volume", { volume });
+    if (route && ip && activeRoutes.size > 1 && !synchronizedPlaying) {
+      // Several receivers: only this one changes (the command also saves it).
+      void invoke("set_receiver_volume", { ip, port: route.port, volume }).catch((e) => showToast(String(e)));
+    } else if (route) {
+      void invoke("set_stream_volume", { volume })
+        .then(() => patchReceiverPreferences(d.id, { volume }))
+        .catch((e) => showToast(String(e)));
+    } else {
+      void patchReceiverPreferences(d.id, { volume }).catch((e) => showToast(String(e)));
+    }
+  }, 120);
+}
+
+/// ▶ on a row: start on that receiver, switch to it, or add it when
+/// "Play on multiple devices" is enabled.
+async function playOn(d: Device) {
+  if (actionBusy || latencyApplying || stopping) return;
+  if (playing) { await connect(d, false); return; }
+  connectingId = d.id;
+  connectedId = d.id;
+  connectedRoute = null;
+  render();
+  try {
+    await loadReceiverPreferences(d.id);
+    await startPlay();
+  } finally {
+    connectingId = null;
+    render();
+  }
+}
+
+/// ■ on a row: remove that receiver, or stop everything if it is the last one.
+async function stopOn(d: Device) {
+  if (activeRoutes.size > 1 && !synchronizedPlaying) await disconnect(d);
+  else await stopPlay();
+}
+
 function render() {
-  devicesList.innerHTML = "";
+  if (draggingVolume) { renderPending = true; return; }
+  renderPending = false;
+  devicesList.replaceChildren();
   const sorted = [...known.values()].sort((a, b) => {
     if (a.kind === "homepod" && b.kind !== "homepod") return -1;
     if (b.kind === "homepod" && a.kind !== "homepod") return 1;
     return a.name.localeCompare(b.name);
   });
+  const busy = actionBusy || latencyApplying || stopping;
   for (const d of sorted) {
+    const status = rowStatus(d);
+    const active = isPlayingOn(d);
     const li = document.createElement("li");
-    const isConnected = playing ? activeRoutes.has(d.id) : connectedId === d.id;
-    const isConnecting = connectingId === d.id;
-    li.className = `device ${d.kind}${isConnected ? " connected" : ""}`;
+    li.className = `receiver ${status}`;
     const addr = d.addresses.find((a) => !a.includes(":")) ?? d.addresses[0] ?? d.host;
+    li.title = d.member_ids
+      ? `${t("stereo_pair")} · ${d.member_names?.join(" + ") ?? ""}`
+      : `${KIND_LABEL[d.kind]} · ${addr}:${d.port}${d.supports_airplay2 ? " · AirPlay 2" : ""}`;
+
+    const icon = document.createElement("span");
+    icon.className = "kind-icon";
+    icon.innerHTML = SPEAKER_ICON;
 
     const info = document.createElement("div");
     info.className = "info";
-    info.innerHTML = `
-      <span class="name">${escape(d.name)}</span>
-      <span class="meta">${d.member_ids ? `${escape(t("stereo_pair"))} · ${escape(d.member_names?.join(" + ") ?? "")}` : `${KIND_LABEL[d.kind]} · ${escape(addr)}:${d.port}${d.supports_airplay2 ? " · AirPlay 2" : ""}`}</span>
-    `;
-    li.appendChild(info);
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = d.name;
+    const state = document.createElement("span");
+    state.className = "state";
+    state.textContent = d.member_ids && !d.pair_complete ? t("incomplete_pair") : t(`rx_${status}`);
+    info.append(name, state);
 
-    const btn = document.createElement("button");
-    btn.className = "connect";
-    if (isConnecting) {
-      btn.textContent = t("connecting");
-      btn.disabled = true;
-    } else if (isConnected) {
-      btn.textContent = t("disconnect");
-      btn.disabled = actionBusy || latencyApplying;
-      btn.addEventListener("click", () => void disconnect(d));
-    } else {
-      btn.textContent = t("connect");
-      btn.disabled = actionBusy || latencyApplying || d.available === false || (Boolean(d.member_ids) && !d.pair_complete);
-      if (d.member_ids && !d.pair_complete) btn.textContent = t("incomplete_pair");
-      btn.addEventListener("click", () => void connect(d));
-    }
-    li.appendChild(btn);
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = "100";
+    slider.className = "row-volume";
+    slider.value = String(rowVolume(d));
+    slider.title = `${slider.value}%`;
+    slider.setAttribute("aria-label", t("rx_volume", { name: d.name }));
+    slider.addEventListener("pointerdown", () => { draggingVolume = true; });
+    slider.addEventListener("input", () => { slider.title = `${slider.value}%`; setRowVolume(d, Number(slider.value)); });
 
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = `row-toggle${active ? " playing" : ""}`;
+    toggle.innerHTML = active ? STOP_ICON : PLAY_ICON;
+    toggle.title = t(active ? "rx_stop" : "rx_play", { name: d.name });
+    toggle.setAttribute("aria-label", toggle.title);
+    toggle.disabled = busy || (!active && (d.available === false || (Boolean(d.member_ids) && !d.pair_complete)));
+    toggle.addEventListener("click", () => void (active ? stopOn(d) : playOn(d)));
+
+    li.append(icon, info, slider, toggle);
     devicesList.appendChild(li);
   }
+  emptyEl.hidden = known.size > 0;
   statusEl.textContent =
     known.size === 1
       ? t("devices_count_one")
@@ -696,6 +775,36 @@ manualIpInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") void addManual();
 });
 
+// ── Compact window ──────────────────────────────────────────────────────────
+const advancedEl = document.getElementById("advanced") as HTMLElement;
+document.getElementById("settings-toggle")!.addEventListener("click", () => { advancedEl.hidden = !advancedEl.hidden; });
+document.getElementById("quit")!.addEventListener("click", () => void invoke("quit_app"));
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !confirmDialog.open) void invoke("hide_main_window");
+});
+// The native window follows the content height (capped to the screen by the backend).
+const appEl = document.getElementById("app") as HTMLDivElement;
+let fittedHeight = 0;
+// Extra pixels to request when the native window ends up smaller than asked
+// (window borders, DPI rounding).
+let heightCorrection = 0;
+function fitWindow() {
+  const height = Math.ceil(appEl.getBoundingClientRect().height) + heightCorrection;
+  if (height === fittedHeight) return;
+  fittedHeight = height;
+  void invoke("fit_main_window", { height });
+}
+new ResizeObserver(fitWindow).observe(appEl);
+window.addEventListener("resize", () => {
+  const content = Math.ceil(appEl.getBoundingClientRect().height);
+  const missing = content - window.innerHeight;
+  // Small gap only: a large one means the window is capped to the screen.
+  if (missing > 0 && missing <= 48) {
+    heightCorrection += missing;
+    fitWindow();
+  }
+});
+
 setupAsyncErrorListener();
 applyStaticTranslations();
 // Initialize after all controls below have been created.
@@ -785,8 +894,6 @@ async function reconnectLast() {
     last = null;
   }
   if (!last) return;
-  lastDeviceName ??= last.name;
-  publishFlyoutState();
 
   statusEl.textContent = t("reconnecting", { name: last.name });
 
@@ -933,21 +1040,17 @@ window.setInterval(async () => {
     const revision = volumeRevision;
     const values = await invoke<ReceiverVolume[]>("get_receiver_volumes");
     if (revision !== volumeRevision || !playing || status.generation !== activeGeneration) return;
-    const container = document.getElementById("receiver-volumes")!;
-    if (container.contains(document.activeElement)) return;
-    container.replaceChildren();
+    if (draggingVolume) return;
+    let changed = false;
     for (const value of values) {
-      const route = [...activeRoutes.values(), ...discovered.values()].find(d => d.port === value.port && d.addresses.includes(value.ip));
-      const row = document.createElement("div"); row.className = "receiver-volume";
-      const label = document.createElement("label"); label.append(document.createTextNode(route?.name ?? `${value.ip}:${value.port}`));
-      const slider = document.createElement("input"); slider.type = "range"; slider.min = "0"; slider.max = "100"; slider.value = String(Math.round(value.volume * 100));
-      const output = document.createElement("output"); output.textContent = `${slider.value}%`;
-      let timer: number | undefined;
-      slider.addEventListener("input", () => { ++volumeRevision; output.textContent = `${slider.value}%`; clearTimeout(timer); timer = window.setTimeout(() => void invoke("set_receiver_volume", { ip: value.ip, port: value.port, volume: Number(slider.value)/100 }).catch(e => showToast(String(e))), 120); });
-      label.append(slider, output); row.append(label);
-      if (!value.readable) { const hint = document.createElement("small"); hint.textContent = t("volume_unreadable"); row.append(hint); }
-      container.append(row);
+      if (!value.readable) continue;
+      const id = [...activeRoutes].find(([, route]) => route.port === value.port && route.addresses.includes(value.ip))?.[0];
+      if (!id) continue;
+      const pct = Math.round(value.volume * 100);
+      if (id === connectedId && volumeSlider.value !== String(pct)) { volumeSlider.value = String(pct); volumeOut.textContent = `${pct}%`; changed = true; }
+      if (deviceVolumes.get(id) !== pct) { deviceVolumes.set(id, pct); changed = true; }
     }
+    if (changed) render();
   } catch { /* The next poll retries; session errors are reported by the backend. */ }
   finally { polling = false; }
 }, 3000);
