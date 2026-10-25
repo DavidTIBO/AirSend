@@ -31,15 +31,3 @@ lto = "thin"
 codegen-units = 1
 strip = true
 panic = "abort"
-
-# Local override of the airplay2-rs fork (HomePod OS 27 debugging)
-[patch."https://github.com/Pabldi08/airplay2-rs"]
-airplay-audio = { path = "../airplay2-rs/crates/airplay-audio" }
-airplay-client = { path = "../airplay2-rs/crates/airplay-client" }
-airplay-core = { path = "../airplay2-rs/crates/airplay-core" }
-airplay-crypto = { path = "../airplay2-rs/crates/airplay-crypto" }
-airplay-discovery = { path = "../airplay2-rs/crates/airplay-discovery" }
-airplay-pairing = { path = "../airplay2-rs/crates/airplay-pairing" }
-airplay-resampler = { path = "../airplay2-rs/crates/airplay-resampler" }
-airplay-rtsp = { path = "../airplay2-rs/crates/airplay-rtsp" }
-airplay-timing = { path = "../airplay2-rs/crates/airplay-timing" }

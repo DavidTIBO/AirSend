@@ -1,4 +1,57 @@
 # AirSend
+
+> **This is a personal fork of [Pabldi08/AirSend](https://github.com/Pabldi08/AirSend).**
+> It makes AirSend work with **HomePod software 27** and reworks the interface to
+> behave like TuneBlade. The default branch is `homepod-os27`.
+>
+> **Disclosure:** the investigation and all the changes in this fork were produced
+> with an AI coding assistant (Claude Code). I did not write the code myself; I built
+> it and tested it on Windows 11 with a HomePod mini (HomePod software 27). Please
+> review accordingly. Details of the fixes were reported upstream in
+> [Pabldi08/AirSend#24](https://github.com/Pabldi08/AirSend/issues/24).
+
+## What's different in this fork
+
+**HomePod software 27 fixes** (some in the
+[DavidTIBO/airplay2-rs](https://github.com/DavidTIBO/airplay2-rs/tree/homepod-os27-pr5) fork)
+
+- Connect no longer fails on the compound `gid` TXT record advertised by OS 27
+  (parser from [Pabldi08/airplay2-rs#5](https://github.com/Pabldi08/airplay2-rs/pull/5)).
+- PTP timing instead of NTP: OS 27 never answers the second SETUP with NTP.
+- The PTP clock offset is actually computed (one-way Sync/Follow_Up estimate, correct
+  sign), so the receiver buffer can go down to ~100 ms instead of 1–3 s.
+- Idle silence is sent at real time on Windows, and the RTP timeline is re-aligned
+  after capture gaps, so audio comes back after a pause.
+- Clean recovery after Windows sleep, and no connection state can stay stuck.
+
+**Interface**
+
+- Compact window anchored above the tray icon, like TuneBlade: one row per receiver
+  with its own volume and play/stop button; it hides when you click elsewhere.
+- Preferences window: General (start with Windows, start minimized, reconnect and
+  play the last receiver on launch, reconnect on errors), AirPlay streaming (buffer
+  limit in 50 ms steps, reduced local buffer), Audio capture, AirPlay receivers,
+  Diagnostics.
+- English only, new icon, single instance, receiver retransmit requests logged.
+- "Check for updates" removed: upstream releases do not include these changes.
+
+## Building this fork
+
+The download links below are the **original project's releases and do not include
+these changes**. Build from source instead (Rust, Node.js and `tauri-cli` v2):
+
+```powershell
+cd ui
+npm ci
+cd ..
+cargo tauri build --no-bundle
+# -> target\release\conexion-airplay.exe
+```
+
+The original README follows.
+
+---
+
 <p align="center">
   <a href="README.md">English</a> ·
   <a href="README.es.md">Español</a>

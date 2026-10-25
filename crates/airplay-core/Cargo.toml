@@ -23,10 +23,12 @@ async-trait = "0.1"
 # MMCSS correcta para el sender) porque el upstream no compila en MSVC tal cual.
 # Renombramos los paquetes para no colisionar con nuestro crate local (también
 # llamado airplay-core en el repo upstream).
-ap2rs-pairing = { package = "airplay-pairing", git = "https://github.com/Pabldi08/airplay2-rs", rev = "dc66e2b3df1ad87a34fd9c859ec452bd787154e1" }
-ap2rs-core = { package = "airplay-core", git = "https://github.com/Pabldi08/airplay2-rs", rev = "dc66e2b3df1ad87a34fd9c859ec452bd787154e1" }
-ap2rs-client = { package = "airplay-client", git = "https://github.com/Pabldi08/airplay2-rs", rev = "dc66e2b3df1ad87a34fd9c859ec452bd787154e1" }
-ap2rs-audio = { package = "airplay-audio", git = "https://github.com/Pabldi08/airplay2-rs", rev = "dc66e2b3df1ad87a34fd9c859ec452bd787154e1" }
+# Since the HomePod OS 27 fixes, this points to DavidTIBO/airplay2-rs
+# (branch homepod-os27-pr5), which carries the PTP and timing fixes.
+ap2rs-pairing = { package = "airplay-pairing", git = "https://github.com/DavidTIBO/airplay2-rs", rev = "9edef3287ae1ade1248ea4f18f1bc41a8780005b" }
+ap2rs-core = { package = "airplay-core", git = "https://github.com/DavidTIBO/airplay2-rs", rev = "9edef3287ae1ade1248ea4f18f1bc41a8780005b" }
+ap2rs-client = { package = "airplay-client", git = "https://github.com/DavidTIBO/airplay2-rs", rev = "9edef3287ae1ade1248ea4f18f1bc41a8780005b" }
+ap2rs-audio = { package = "airplay-audio", git = "https://github.com/DavidTIBO/airplay2-rs", rev = "9edef3287ae1ade1248ea4f18f1bc41a8780005b" }
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true }
@@ -56,5 +58,5 @@ version = "0.5"
 
 [dependencies.ap2rs-discovery]
 package = "airplay-discovery"
-git = "https://github.com/Pabldi08/airplay2-rs"
-rev = "dc66e2b3df1ad87a34fd9c859ec452bd787154e1"
+git = "https://github.com/DavidTIBO/airplay2-rs"
+rev = "9edef3287ae1ade1248ea4f18f1bc41a8780005b"
