@@ -18,7 +18,7 @@ use cap_core::{
     probe::{manual_device, parse_manual_endpoint},
     probe_airplay, Device, Discovery,
 };
-use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, State, WindowEvent};
 use tauri_plugin_store::StoreExt;
@@ -444,7 +444,7 @@ async fn prepare_output(
     diagnostics: &SessionRecord,
     app: &tauri::AppHandle,
 ) -> Result<PreparedLiveStream, String> {
-    let parsed: IpAddr = ip.parse().map_err(|e| format!("IP inválida: {e}"))?;
+    let parsed: IpAddr = ip.parse().map_err(|e| format!("invalid IP: {e}"))?;
     let descriptor = resolve_descriptor(app, None, parsed, port, name)?;
     cap_core::streaming::prepare_live_stream(descriptor, Some(volume), Some(latency_ms), policy)
         .await
@@ -500,7 +500,7 @@ async fn attach_output(
     )
     .await?;
     if (prepared.sample_rate(), prepared.channels()) != (active.sample_rate, active.channels) {
-        return Err("los receptores no comparten formato de audio".into());
+        return Err("receivers do not share an audio format".into());
     }
     let key = output_key(ip, port);
     let sender = prepared.sender();
@@ -543,7 +543,7 @@ async fn prepare_stream(
     use std::sync::{atomic::AtomicBool, Arc};
     cap_core::streaming::validate_latency_ms(latency_ms).map_err(|e| e.to_string())?;
     let (first_ip, first_port, first_name, first_volume) =
-        targets.first().ok_or("no hay receptores")?;
+        targets.first().ok_or("no receivers")?;
     let policy = if get_experimental_local_buffer(app.clone())? {
         LocalBufferPolicy::LowLatency
     } else {
@@ -916,7 +916,7 @@ async fn start_streaming(
     latency_ms: Option<u32>,
     state: State<'_, StreamingState>,
 ) -> Result<StreamingInfo, String> {
-    let parsed: IpAddr = ip.parse().map_err(|e| format!("IP inválida: {e}"))?;
+    let parsed: IpAddr = ip.parse().map_err(|e| format!("invalid IP: {e}"))?;
     let port = port.unwrap_or(7000);
     let name = name.unwrap_or_else(|| format!("HomePod {parsed}"));
     let volume = volume
@@ -985,7 +985,7 @@ async fn add_streaming(
     latency_ms: Option<u32>,
     state: State<'_, StreamingState>,
 ) -> Result<StreamingInfo, String> {
-    let parsed: IpAddr = ip.parse().map_err(|e| format!("IP inválida: {e}"))?;
+    let parsed: IpAddr = ip.parse().map_err(|e| format!("invalid IP: {e}"))?;
     let port = port.unwrap_or(7000);
     let name = name.unwrap_or_else(|| format!("HomePod {parsed}"));
     let volume = volume
@@ -1036,7 +1036,7 @@ async fn add_streaming(
         if requested != active.latency_ms {
             drop(slot);
             monitor_active(&app, &state, token.generation).await;
-            return Err("la latencia no coincide con la reproducción actual".to_string());
+            return Err("latency does not match the current playback".to_string());
         }
     }
     let key = output_key(&parsed.to_string(), port);
@@ -1232,7 +1232,7 @@ async fn set_stream_volume(
     let mut slot = state.inner.lock().await;
     let active = slot
         .as_mut()
-        .ok_or_else(|| "no hay streaming activo".to_string())?;
+        .ok_or_else(|| "no active stream".to_string())?;
     if !volume.is_finite() || !(0.0..=1.0).contains(&volume) {
         return Err("invalid_volume".into());
     }
@@ -1321,7 +1321,7 @@ async fn connect_device(
     name: Option<String>,
     state: State<'_, ConnectionState>,
 ) -> Result<ConnectionInfo, String> {
-    let parsed: IpAddr = ip.parse().map_err(|e| format!("IP inválida '{ip}': {e}"))?;
+    let parsed: IpAddr = ip.parse().map_err(|e| format!("invalid IP '{ip}': {e}"))?;
     let port = port.unwrap_or(7000);
     let display_name = name.clone().unwrap_or_else(|| format!("HomePod {parsed}"));
 
@@ -1333,7 +1333,7 @@ async fn connect_device(
         biased;
         _ = token.cancelled() => return Err("session_cancelled".into()),
         result = within_deadline(async {
-            pair_homepod(descriptor).await.map_err(|e| format!("pairing falló: {e}"))
+            pair_homepod(descriptor).await.map_err(|e| format!("pairing failed: {e}"))
         }) => result?,
     };
     if let Some(mut previous) = slot.replace(session) {
@@ -1377,7 +1377,7 @@ async fn add_manual_device(
     state: State<'_, DiscoveryState>,
 ) -> Result<Device, String> {
     let (parsed, port) =
-        parse_manual_endpoint(&ip, port).map_err(|e| format!("endpoint inválido '{ip}': {e}"))?;
+        parse_manual_endpoint(&ip, port).map_err(|e| format!("invalid endpoint '{ip}': {e}"))?;
 
     let probe = probe_airplay(parsed, port)
         .await
@@ -1749,30 +1749,9 @@ async fn confirm_latency(
 // proceso sigue (streaming continúa). Sólo "Salir" del menú o un kill mata el
 // daemon. Esto es lo esperado para una app de tipo "siempre disponible".
 
-struct TrayItems {
-    show: MenuItem<tauri::Wry>,
-    quit: MenuItem<tauri::Wry>,
-}
-
-fn tray_labels(lang: &str) -> Option<(&'static str, &'static str)> {
-    match lang {
-        "es" => Some(("Mostrar / ocultar ventana", "Salir")),
-        "en" => Some(("Show / hide window", "Quit")),
-        _ => None,
-    }
-}
-
-#[tauri::command]
-fn set_tray_language(lang: String, state: State<'_, TrayItems>) -> Result<(), String> {
-    let (show, quit) = tray_labels(&lang).ok_or_else(|| "unsupported language".to_string())?;
-    state.show.set_text(show).map_err(|e| e.to_string())?;
-    state.quit.set_text(quit).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<TrayItems> {
-    let show_item = MenuItemBuilder::with_id("show", "Mostrar / ocultar ventana").build(app)?;
-    let quit_item = MenuItemBuilder::with_id("quit", "Salir").build(app)?;
+fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let show_item = MenuItemBuilder::with_id("show", "Show / hide window").build(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
     let menu = MenuBuilder::new(app)
         .item(&show_item)
         .separator()
@@ -1815,10 +1794,7 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<TrayItems> {
     }
     builder.build(app)?;
 
-    Ok(TrayItems {
-        show: show_item,
-        quit: quit_item,
-    })
+    Ok(())
 }
 
 const FLYOUT_LABEL: &str = "flyout";
@@ -2067,7 +2043,6 @@ pub fn run() {
             get_latency,
             get_latency_cooldown_ms,
             confirm_latency,
-            set_tray_language,
             get_experimental_local_buffer,
             save_experimental_local_buffer,
             export_audio_diagnostics,
@@ -2088,8 +2063,7 @@ pub fn run() {
                 result => tracing::warn!(?result, "local mute recovery remains pending"),
             }
             setup_flyout(app.handle())?;
-            let tray_items = setup_tray(app.handle())?;
-            app.manage(tray_items);
+            setup_tray(app.handle())?;
 
             let power_app = app.handle().clone();
             power::watch(move |event| handle_power_event(&power_app, event));

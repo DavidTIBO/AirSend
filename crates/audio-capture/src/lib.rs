@@ -18,13 +18,13 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum CaptureError {
-    #[error("no se encontró ningún dispositivo de captura adecuado")]
+    #[error("no suitable capture device found")]
     NoDevice,
-    #[error("no se pudo configurar el stream con sample rate {wanted} Hz / {channels} ch")]
+    #[error("could not configure the stream at {wanted} Hz / {channels} ch")]
     UnsupportedConfig { wanted: u32, channels: u16 },
-    #[error("backend de captura: {0}")]
+    #[error("capture backend: {0}")]
     Backend(String),
-    #[error("backend no implementado en esta plataforma")]
+    #[error("capture backend not implemented on this platform")]
     UnsupportedPlatform,
 }
 

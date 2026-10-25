@@ -2,13 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { groupDevices, routesFor, type Device, type DeviceKind } from "./devices";
 import type { FlyoutState } from "./flyout";
-import {
-  applyStaticTranslations,
-  getLang,
-  onLangChange,
-  t,
-  toggleLang,
-} from "./i18n";
+import { applyStaticTranslations, t } from "./i18n";
 
 const KIND_LABEL: Record<DeviceKind, string> = {
   homepod: "HomePod",
@@ -143,7 +137,7 @@ async function streamTo(device: Device, command: "start_streaming" | "add_stream
   }
   const preferences = command === "add_streaming" || (playing && connectedId !== device.id)
     ? await invoke<ReceiverPreferences>("get_receiver_preferences", { receiverId: device.id }) : null;
-  let lastError: unknown = new Error("dispositivo sin dirección IP");
+  let lastError: unknown = new Error("device has no IP address");
   for (const route of routesFor(discovered, device, preferred ?? null)) {
     const ip = route.addresses.find((a) => !a.includes(":")) ?? route.addresses[0];
     if (!ip) continue;
@@ -197,7 +191,7 @@ async function connect(device: Device) {
       return;
     }
     if (device.member_ids) { connectedId = device.id; connectedRoute = device; await loadReceiverPreferences(device.id); return; }
-    let lastError: unknown = new Error("dispositivo sin dirección IP");
+    let lastError: unknown = new Error("device has no IP address");
     let route: Device | null = null;
     for (const candidate of routesFor(discovered, device)) {
       const ip = candidate.addresses.find((a) => !a.includes(":")) ?? candidate.addresses[0];
@@ -239,7 +233,7 @@ async function disconnect(device: Device) {
     if (playing && activeRoutes.size > 1) {
       const route = activeRoutes.get(device.id);
       const ip = route?.addresses.find((a) => !a.includes(":")) ?? route?.addresses[0];
-      if (!ip || !route) throw new Error("dispositivo sin dirección IP");
+      if (!ip || !route) throw new Error("device has no IP address");
       await invoke("remove_streaming", { ip, port: route.port });
       activeRoutes.delete(device.id);
       if (connectedId === device.id) {
@@ -347,7 +341,6 @@ function publishFlyoutState() {
     name: dev?.name ?? lastDeviceName,
     status,
     volume: Number(volumeSlider.value),
-    lang: getLang(),
   };
   void emit("flyout://state", state).catch(() => {});
 }
@@ -469,7 +462,7 @@ multiToggle.addEventListener("change", async () => {
       for (const [id, route] of [...activeRoutes]) {
         if (id === keepId) continue;
         const ip = route.addresses.find((a) => !a.includes(":")) ?? route.addresses[0];
-        if (!ip) throw new Error("dispositivo sin dirección IP");
+        if (!ip) throw new Error("device has no IP address");
         await invoke("remove_streaming", { ip, port: route.port });
         activeRoutes.delete(id);
       }
@@ -704,7 +697,7 @@ manualIpInput.addEventListener("keydown", (e) => {
 });
 
 setupAsyncErrorListener();
-setupLangToggle();
+applyStaticTranslations();
 // Initialize after all controls below have been created.
 queueMicrotask(() => void initialize());
 
@@ -719,38 +712,6 @@ async function preloadMultiDevice() {
   } catch {
     multiToggle.checked = false;
   }
-}
-
-function setupLangToggle() {
-  const btn = document.getElementById("lang-toggle") as HTMLButtonElement | null;
-  applyStaticTranslations();
-  refreshLangToggleLabel();
-  syncTrayLanguage(getLang());
-  onLangChange(() => {
-    refreshLangToggleLabel();
-    syncTrayLanguage(getLang());
-    // Re-render lo que tiene texto dinámico generado por JS.
-    render();
-    updatePlayerUi();
-    refreshLatencyUi();
-    void refreshAudioOutputs().catch(e => showToast(String(e)));
-  });
-  if (btn) btn.addEventListener("click", () => toggleLang());
-}
-
-function syncTrayLanguage(lang: "es" | "en") {
-  void invoke("set_tray_language", { lang }).catch((err) => {
-    console.error("Could not update tray language", err);
-  });
-}
-
-function refreshLangToggleLabel() {
-  const btn = document.getElementById("lang-toggle") as HTMLButtonElement | null;
-  if (!btn) return;
-  btn.textContent = t(getLang() === "es" ? "lang_toggle_to_en" : "lang_toggle_to_es");
-  const title = t("lang_toggle_title");
-  btn.title = title;
-  btn.setAttribute("aria-label", title);
 }
 
 async function preloadSavedVolume() {

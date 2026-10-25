@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { getLang, setLang, t, type Lang } from "./i18n";
+import { t } from "./i18n";
 
 // Compact tray panel. The main window stays the single source of truth: it
 // publishes its state on `flyout://state` and performs the actions requested
@@ -9,7 +9,6 @@ export interface FlyoutState {
   name: string | null;
   status: "playing" | "busy" | "connected" | "idle";
   volume: number;
-  lang: Lang;
 }
 
 const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
@@ -26,7 +25,6 @@ const openMain = document.getElementById("open-main") as HTMLButtonElement;
 let lastLocalVolumeChange = 0;
 
 function apply(state: FlyoutState) {
-  if (state.lang !== getLang()) setLang(state.lang);
   nameEl.textContent = state.name ?? t("flyout_no_receiver");
   stateEl.textContent = t(`flyout_${state.status}`);
   stateEl.dataset.status = state.status;

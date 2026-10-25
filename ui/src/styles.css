@@ -45,24 +45,6 @@ header h1 {
   gap: 12px;
 }
 
-.lang-toggle {
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px 9px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  line-height: 1.2;
-}
-
-.lang-toggle:hover {
-  color: var(--fg);
-  border-color: var(--accent);
-  filter: none;
-}
-
 .subtitle {
   margin: 0 0 20px;
   color: var(--muted);

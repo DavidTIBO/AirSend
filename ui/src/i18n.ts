@@ -1,113 +1,4 @@
-export type Lang = "es" | "en";
-
 type Dict = Record<string, string>;
-
-const ES: Dict = {
-  audio_source: "Fuente de audio de Windows",
-  audio_default: "Salida predeterminada",
-  refresh: "Actualizar",
-  audio_source_hint: "Captura las aplicaciones que ya reproducen en esta salida; no las redirige. Para cambiarla, para la reproducción.",
-  mute_local: "Silenciar salida local (experimental)",
-  mute_hint: "Espera a que llegue audio y comprueba que la captura continúa. Si se corta, restaura la salida. También la restaura al parar o fallar.",
-  mute_off: "Salida local sin modificar",
-  mute_waiting_signal: "Esperando audio para probar el silencio",
-  mute_checking: "Comprobando captura con salida silenciada…",
-  mute_muted: "Salida local silenciada; captura con señal",
-  mute_unsupported: "El silencio no conserva la captura en esta salida. Se ha restaurado.",
-  mute_user_changed: "Se respeta tu cambio manual de volumen o silencio",
-  group_first: "Primer HomePod",
-  stereo_pair: "Pareja estéreo (experimental)",
-  group_second: "Segundo HomePod",
-  mute_unavailable: "Silencio local disponible en Windows",
-  group_summary: "Parejas y sincronización (experimental)",
-  stereo_pairs: "Mostrar parejas configuradas en Apple Home",
-  group_hint: "Prueba la reproducción simultánea en dos HomePods. Si se pierde un miembro, se para todo el grupo. Pendiente de validar con dispositivos reales.",
-  group_play: "Probar reproducción sincronizada",
-  incomplete_pair: "Pareja incompleta",
-  auto_reconnect: "Reconectar si falla este receptor (hasta 3 intentos)",
-  check_updates: "Buscar actualizaciones",
-  volume_unreadable: "Lectura del receptor no disponible; ajuste solicitado",
-  feedback_failed: "El receptor dejó de responder",
-  transport_failed: "Falló el envío de audio",
-  receiver_unavailable: "El receptor ya no está disponible",
-  session_cancelled: "Operación cancelada",
-  session_recovering: "Reconectando…",
-  connect_timeout: "El receptor no respondió a tiempo",
-  operation_timeout: "La operación tardó demasiado y se canceló",
-  power_resumed: "El equipo salió de suspensión: buscando receptores…",
-  flyout_no_receiver: "Ningún receptor",
-  flyout_playing: "Reproduciendo",
-  flyout_busy: "Conectando…",
-  flyout_connected: "Listo",
-  flyout_idle: "Desconectado",
-  flyout_play: "Reproducir audio del PC",
-  flyout_stop: "Parar",
-  flyout_open: "Abrir AirSend",
-  stop_before_source_change: "Para la reproducción antes de cambiar la fuente",
-  group_requires_two_receivers: "Selecciona dos HomePods distintos",
-  stop_before_group_change: "Para el grupo antes de cambiar sus miembros",
-
-  subtitle: "Envía el audio de Windows a tu HomePod",
-  scan: "Buscar dispositivos",
-  scan_searching: "buscando…",
-  devices_count_one: "1 dispositivo",
-  devices_count_other: "{n} dispositivos",
-  connect: "Conectar",
-  connecting: "Conectando…",
-  disconnect: "Desconectar",
-  play_generic: "▶ Reproducir audio del PC",
-  play_to: "▶ Enviar audio del PC a {name}",
-  stop: "⏸ Parar",
-  player_starting: "iniciando…",
-  player_playing: "reproduciendo",
-  multi_device: "Reproducir en varios dispositivos",
-  multi_device_hint: "Experimental: al conectar otro receptor durante la reproducción, se añadirá al audio actual. Los receptores pueden no estar perfectamente sincronizados.",
-  switch_title: "Cambiar dispositivo de audio",
-  switch_message: "El audio se está enviando a {from}. Con varios dispositivos desactivado, conectar {to} cambiará la reproducción y desconectará {from}.",
-  switch_confirm: "Cambiar a {name}",
-  multi_off_title: "Desactivar varios dispositivos",
-  multi_off_message: "Se detendrá la reproducción en los demás dispositivos y continuará en {name}.",
-  multi_off_confirm: "Continuar solo en {name}",
-  cancel: "Cancelar",
-  local_buffer: "Búfer local reducido (experimental)",
-  local_buffer_hint: "Puede reducir el retardo, pero también causar cortes. Para cambiarlo, para la reproducción. El HomePod puede añadir su propio retardo.",
-  local_buffer_error: "No se pudo cambiar el búfer local: {err}",
-  local_buffer_stop: "Para la reproducción antes de cambiar el búfer local.",
-  diagnostics_summary: "Diagnóstico de audio",
-  diagnostics_hint: "Descarga las métricas de las últimas sesiones para comparar retardo y cortes. No incluye nombres, direcciones IP ni credenciales. Las medidas locales no representan el retardo audible del HomePod.",
-  diagnostics_export: "Descargar diagnóstico",
-  diagnostics_ready: "Diagnóstico preparado",
-  diagnostics_error: "No se pudo exportar el diagnóstico: {err}",
-  volume: "Volumen",
-  latency: "Límite de búfer solicitado",
-  latency_lower: "Menos retardo",
-  latency_safer: "Más estabilidad",
-  latency_hint:
-    "Confirma el cambio para aplicarlo. Si se está reproduciendo audio, la conexión se reinicia brevemente. 0 ms solicita ningún búfer adicional, pero es experimental: puede fallar o causar cortes. El receptor puede añadir más retardo.",
-  latency_confirm: "Confirmar",
-  latency_current: "Valor aplicado",
-  latency_pending: "Pendiente de confirmar",
-  latency_applying: "Aplicando…",
-  latency_cooldown: "Disponible en {seconds} s",
-  latency_error: "No se pudo aplicar la latencia: {err}",
-  capture_interrupted: "La captura de audio se interrumpió (dispositivo desconectado o fallo del controlador)",
-  manual_summary: "¿No aparece tu HomePod? Añade su IP y puerto manualmente",
-  manual_hint:
-    "Puedes usar una IP o IP:puerto, por ejemplo 192.168.1.50:7453. Para IPv6 con puerto usa [dirección]:puerto.",
-  manual_endpoint_placeholder: "192.168.1.50[:7000]",
-  manual_name_placeholder: "Nombre (opcional)",
-  manual_add: "Añadir",
-  manual_checking: "verificando…",
-  manual_ok: "OK: {name}",
-  manual_need_ip: "introduce una IP",
-  reconnecting: "reconectando a {name}…",
-  cant_find: "no encuentro {name}: {err}",
-  error_prefix: "error: {err}",
-  vol_error_prefix: "vol err: {err}",
-  lang_toggle_to_en: "EN",
-  lang_toggle_to_es: "ES",
-  lang_toggle_title: "Cambiar idioma",
-};
 
 const EN: Dict = {
   audio_source: "Windows audio source",
@@ -211,35 +102,10 @@ const EN: Dict = {
   cant_find: "can't find {name}: {err}",
   error_prefix: "error: {err}",
   vol_error_prefix: "vol err: {err}",
-  lang_toggle_to_en: "EN",
-  lang_toggle_to_es: "ES",
-  lang_toggle_title: "Change language",
 };
 
-const DICTS: Record<Lang, Dict> = { es: ES, en: EN };
-
-const STORAGE_KEY = "airsend.lang";
-
-let current: Lang = detectInitial();
-
-function detectInitial(): Lang {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "es" || saved === "en") return saved;
-  } catch {
-    // localStorage no disponible (no debería pasar en webview Tauri).
-  }
-  const nav = (navigator.language || "es").toLowerCase();
-  return nav.startsWith("es") ? "es" : "en";
-}
-
-export function getLang(): Lang {
-  return current;
-}
-
 export function t(key: string, params?: Record<string, string | number>): string {
-  const dict = DICTS[current];
-  let s = dict[key] ?? DICTS.es[key] ?? key;
+  let s = EN[key] ?? key;
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       s = s.replaceAll(`{${k}}`, String(v));
@@ -248,36 +114,10 @@ export function t(key: string, params?: Record<string, string | number>): string
   return s;
 }
 
-type Listener = (lang: Lang) => void;
-const listeners = new Set<Listener>();
-
-export function onLangChange(cb: Listener): () => void {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
-}
-
-export function setLang(lang: Lang): void {
-  if (lang === current) return;
-  current = lang;
-  try {
-    localStorage.setItem(STORAGE_KEY, lang);
-  } catch {
-    // ignore
-  }
-  document.documentElement.lang = lang;
-  applyStaticTranslations();
-  listeners.forEach((cb) => cb(lang));
-}
-
-export function toggleLang(): void {
-  setLang(current === "es" ? "en" : "es");
-}
-
-// Aplica traducciones a todos los nodos con data-i18n / data-i18n-attr.
-// data-i18n="key"           -> reemplaza textContent
-// data-i18n-attr="attr:key" -> reemplaza el atributo (p.ej. "placeholder:manual_name_placeholder")
+// Fills every node carrying data-i18n / data-i18n-attr.
+// data-i18n="key"           -> replaces textContent
+// data-i18n-attr="attr:key" -> replaces the attribute (e.g. "placeholder:manual_name_placeholder")
 export function applyStaticTranslations(): void {
-  document.documentElement.lang = current;
   document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((el) => {
     const key = el.dataset.i18n;
     if (key) el.textContent = t(key);
