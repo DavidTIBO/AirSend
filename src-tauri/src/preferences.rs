@@ -16,6 +16,15 @@ impl Default for ReceiverPreferences {
     }
 }
 impl ReceiverPreferences {
+    /// Migrate only persisted settings; fresh commands still reject zero.
+    pub fn from_stored(value: serde_json::Value) -> Result<Self, String> {
+        let mut preferences: Self = serde_json::from_value(value).map_err(|e| e.to_string())?;
+        if preferences.latency_ms == 0 {
+            preferences.latency_ms = cap_core::streaming::MIN_LATENCY_MS;
+        }
+        preferences.validate()?;
+        Ok(preferences)
+    }
     pub fn validate(&self) -> Result<(), String> {
         if !self.volume.is_finite() || !(0.0..=1.0).contains(&self.volume) {
             return Err("invalid_volume".into());
@@ -28,6 +37,7 @@ impl ReceiverPreferences {
 pub struct AudioOptions {
     pub device_id: Option<String>,
     pub mute_local: bool,
+    pub legacy_timing: bool,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +64,34 @@ impl ReceiverPreferencesPatch {
 mod tests {
     use super::*;
     #[test]
+    fn stored_zero_latency_migrates_without_losing_volume_or_reconnect() {
+        let preferences = ReceiverPreferences::from_stored(serde_json::json!({
+            "volume": 0.65, "latency_ms": 0, "reconnect": true,
+        }))
+        .unwrap();
+        assert_eq!(preferences.latency_ms, 100);
+        assert_eq!(preferences.volume, 0.65);
+        assert!(preferences.reconnect);
+        for invalid in [50, 99, 3100] {
+            assert!(
+                ReceiverPreferences::from_stored(serde_json::json!({"latency_ms": invalid}))
+                    .is_err()
+            );
+        }
+        assert!(ReceiverPreferences {
+            latency_ms: 0,
+            ..Default::default()
+        }
+        .validate()
+        .is_err());
+        assert_eq!(
+            ReceiverPreferences::from_stored(serde_json::json!({"latency_ms": 200}))
+                .unwrap()
+                .latency_ms,
+            200
+        );
+    }
+    #[test]
     fn volume_patch_preserves_latency_and_reconnect_and_rejects_invalid_values() {
         let mut preferences = ReceiverPreferences {
             volume: 0.2,
@@ -74,5 +112,16 @@ mod tests {
             preferences.volume = invalid;
             assert!(preferences.validate().is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod audio_compatibility_tests {
+    #[test]
+    fn existing_capture_preferences_default_to_automatic_timing() {
+        let options: super::AudioOptions =
+            serde_json::from_str(r#"{"device_id":"saved-output","mute_local":false}"#).unwrap();
+        assert!(!options.legacy_timing);
+        assert_eq!(options.device_id.as_deref(), Some("saved-output"));
     }
 }
