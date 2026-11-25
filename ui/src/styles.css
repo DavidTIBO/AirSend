@@ -144,6 +144,19 @@ ul.receivers {
   accent-color: var(--accent);
 }
 
+/* Volume percentage, just left of the slider; fixed width so "100%" does not shift it. */
+.receiver .row-volume-pct {
+  flex: none;
+  width: 34px;
+  margin-right: -4px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.receiver.playing .row-volume-pct { color: inherit; }
+
 button.row-toggle {
   display: grid;
   place-items: center;

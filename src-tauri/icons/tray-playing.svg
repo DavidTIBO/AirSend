@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Notification-area icon while AirSend is playing: the app icon on a green background. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#15803d"/>
+    </linearGradient>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="208" fill="url(#bg)"/>
+  <rect x="52" y="52" width="920" height="920" rx="204" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="8"/>
+  <path d="M512 218 L296 786 M512 218 L728 786" fill="none" stroke="#ffffff" stroke-width="124" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M384 604 H640" fill="none" stroke="#ffffff" stroke-width="100" stroke-linecap="round"/>
+</svg>

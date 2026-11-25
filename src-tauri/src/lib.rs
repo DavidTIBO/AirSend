@@ -2428,6 +2428,8 @@ fn emit_session(app: &tauri::AppHandle, generation: u64, code: &'static str) {
         return;
     }
     *phase = (generation, code);
+    // set_icon runs on the UI thread: never wait for it while holding the lock.
+    drop(phase);
     let _ = app.emit(
         "airplay://session",
         SessionEvent {
@@ -2435,6 +2437,27 @@ fn emit_session(app: &tauri::AppHandle, generation: u64, code: &'static str) {
             code: code.into(),
         },
     );
+    update_tray_icon(app, code == "streaming");
+}
+
+/// Notification-area icon: green while playing, the app icon otherwise
+/// (also while connecting, reconnecting or released after silence).
+fn update_tray_icon(app: &tauri::AppHandle, playing: bool) {
+    static PLAYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if PLAYING.swap(playing, std::sync::atomic::Ordering::SeqCst) == playing {
+        return;
+    }
+    let Some(tray) = app.tray_by_id("main") else {
+        return;
+    };
+    let icon = if playing {
+        Some(tauri::include_image!("icons/tray-playing.png"))
+    } else {
+        app.default_window_icon().cloned()
+    };
+    if let Err(error) = tray.set_icon(icon) {
+        tracing::warn!(%error, "could not update the notification-area icon");
+    }
 }
 
 async fn monitor_active(app: &tauri::AppHandle, state: &StreamingState, generation: u64) {

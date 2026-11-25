@@ -456,8 +456,17 @@ function render() {
     slider.value = String(rowVolume(d));
     slider.title = `${slider.value}%`;
     slider.setAttribute("aria-label", t("rx_volume", { name: d.name }));
+    // Always visible, just left of the slider; follows it while dragging.
+    const percent = document.createElement("span");
+    percent.className = "row-volume-pct";
+    percent.textContent = `${slider.value}%`;
+    percent.setAttribute("aria-hidden", "true");
     slider.addEventListener("pointerdown", () => { draggingVolume = true; });
-    slider.addEventListener("input", () => { slider.title = `${slider.value}%`; setRowVolume(d, Number(slider.value)); });
+    slider.addEventListener("input", () => {
+      slider.title = `${slider.value}%`;
+      percent.textContent = `${slider.value}%`;
+      setRowVolume(d, Number(slider.value));
+    });
 
     const toggle = document.createElement("button");
     toggle.type = "button";
@@ -469,7 +478,7 @@ function render() {
     toggle.disabled = busy || (!active && (d.available === false || (Boolean(d.member_ids) && !d.pair_complete)));
     toggle.addEventListener("click", () => void (active ? stopOn(d) : resumable ? resumePlay() : playOn(d)));
 
-    li.append(icon, info, slider, toggle);
+    li.append(icon, info, percent, slider, toggle);
     devicesList.appendChild(li);
   }
   emptyEl.hidden = known.size > 0;
@@ -732,8 +741,15 @@ window.setInterval(async () => {
       const id = [...activeRoutes].find(([, route]) => route.port === value.port && route.addresses.includes(value.ip))?.[0];
       if (!id) continue;
       const pct = Math.round(value.volume * 100);
-      if (id === connectedId && primaryVolume !== pct) { primaryVolume = pct; changed = true; }
-      if (deviceVolumes.get(id) !== pct) { deviceVolumes.set(id, pct); changed = true; }
+      let moved = false;
+      if (id === connectedId && primaryVolume !== pct) { primaryVolume = pct; moved = true; }
+      if (deviceVolumes.get(id) !== pct) { deviceVolumes.set(id, pct); moved = true; }
+      if (!moved) continue;
+      changed = true;
+      // Changed on the speaker, an iPhone or Siri: keep it for the next connection too.
+      const volume = pct / 100;
+      void patchReceiverPreferences(id, { volume }).catch(() => {});
+      if (id === connectedId) void invoke("save_volume", { volume }).catch(() => {});
     }
     if (changed) render();
   } catch {
