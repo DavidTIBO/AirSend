@@ -43,6 +43,26 @@
               <span>Reconnect automatically when a connection fails (up to 3 attempts)</span>
             </label>
           </div>
+          <div class="group">
+            <h3>Silence</h3>
+            <label class="check">
+              <input id="standby-enabled" type="checkbox" />
+              <span>Release the speaker when the PC has been silent for a while</span>
+            </label>
+            <div class="row">
+              <select id="standby-minutes" aria-label="Minutes of silence before releasing the speaker">
+                <option value="1">After 1 minute</option>
+                <option value="2">After 2 minutes</option>
+                <option value="5">After 5 minutes</option>
+                <option value="10">After 10 minutes</option>
+                <option value="15">After 15 minutes</option>
+                <option value="30">After 30 minutes</option>
+                <option value="60">After 60 minutes</option>
+              </select>
+            </div>
+            <p class="hint">Another device, such as an iPhone, can then use the speaker. AirSend does not take it back on its own: press ▶ on the receiver to resume. Applies the next time playback starts.</p>
+            <span id="standby-status" class="status" role="status"></span>
+          </div>
         </section>
 
         <section data-page="streaming" hidden>

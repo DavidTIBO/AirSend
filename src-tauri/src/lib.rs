@@ -2,6 +2,7 @@ mod diagnostics;
 mod power;
 mod preferences;
 mod session;
+mod standby;
 use cap_core::discovery::DiscoveryEvent;
 use cap_core::streaming::{LocalBufferPolicy, PreparedLiveStream};
 use diagnostics::{DiagnosticState, SessionRecord};
@@ -211,6 +212,8 @@ struct ActiveStream {
     generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     group_mode: bool,
     target_order: Vec<String>,
+    /// Set by the pump once the PC audio has been silent for the standby timeout.
+    silence: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ActiveStream {
@@ -268,6 +271,16 @@ struct StreamingState {
     inner: tokio::sync::Mutex<Option<ActiveStream>>,
     last_latency_change: tokio::sync::Mutex<Option<Instant>>,
     phase: Mutex<(u64, &'static str)>,
+    /// The session released after silence, waiting for the user to resume it.
+    standby: Mutex<Option<PendingResume>>,
+}
+
+/// What `resume_streaming` needs to restart a session released after silence.
+#[derive(Clone)]
+struct PendingResume {
+    targets: Vec<(String, u16, String, f32)>,
+    latency_ms: u32,
+    group_mode: bool,
 }
 
 fn output_key(ip: &str, port: u16) -> String {
@@ -631,6 +644,8 @@ async fn prepare_stream(
     let pump_senders = senders.clone();
     let pump_diagnostics = diagnostics.clone();
     let pump_app = app.clone();
+    let silence = Arc::new(AtomicBool::new(false));
+    let pump_silence = silence.clone();
     let generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(generation));
     let pump_generation = generation.clone();
     let pump = std::thread::Builder::new()
@@ -638,6 +653,7 @@ async fn prepare_stream(
         .spawn(move || {
             pump_loop(
                 pump_app,
+                pump_silence,
                 rx,
                 pump_senders,
                 sample_rate,
@@ -664,6 +680,7 @@ async fn prepare_stream(
         channels,
         generation,
         group_mode: false,
+        silence,
         target_order: targets
             .iter()
             .map(|(ip, port, _, _)| output_key(ip, *port))
@@ -781,6 +798,8 @@ async fn prepare_synchronized_stream(
         diagnostics.clone(),
         app.clone(),
     );
+    let silence = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pump_silence = silence.clone();
     let generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(generation));
     let pump_generation = generation.clone();
     let pump = std::thread::Builder::new()
@@ -788,6 +807,7 @@ async fn prepare_synchronized_stream(
         .spawn(move || {
             pump_loop(
                 pump_app,
+                pump_silence,
                 rx,
                 pump_senders,
                 44100,
@@ -811,6 +831,7 @@ async fn prepare_synchronized_stream(
         channels: 2,
         generation,
         group_mode: true,
+        silence,
         target_order: targets
             .iter()
             .map(|(ip, port, _, _)| output_key(ip, *port))
@@ -899,6 +920,7 @@ async fn start_group_streaming(
     let mut token = state.control.begin();
     let generation = token.generation;
     let _operation = state.operation.lock().await;
+    state.standby.lock().unwrap().take();
     emit_session(&app, generation, "preparing");
     let prepared = tokio::select! { biased; _ = token.cancelled() => return Err("session_cancelled".into()), result = within_deadline(prepare_synchronized_stream(app.clone(), &targets, latency_ms, generation)) => result };
     let mut active = match prepared {
@@ -958,6 +980,7 @@ async fn start_streaming(
         return Err("session_cancelled".into());
     }
     let generation = token.generation;
+    state.standby.lock().unwrap().take();
     emit_session(&app, generation, "preparing");
     let targets = [(parsed.to_string(), port, name, volume)];
     let prepared = tokio::select! {
@@ -1099,7 +1122,8 @@ async fn add_streaming(
 }
 
 fn pump_loop(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
+    silence: std::sync::Arc<std::sync::atomic::AtomicBool>,
     rx: audio_capture::CaptureReceiver,
     senders: std::sync::Arc<Mutex<HashMap<String, cap_core::streaming::LiveFrameSender>>>,
     sample_rate: u32,
@@ -1119,11 +1143,23 @@ fn pump_loop(
     let mut last_frame = Instant::now();
     let mut last_report = last_frame;
     let mut max_capture_gap = Duration::ZERO;
+    // Read once per session: a changed setting applies from the next start.
+    let mut detector = {
+        let options = load_standby_options(&app);
+        options.enabled.then(|| standby::SilenceDetector::new(options))
+    };
     while !stop.load(Ordering::SeqCst) {
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok(frame) => {
                 let now = Instant::now();
                 max_capture_gap = max_capture_gap.max(now.saturating_duration_since(last_frame));
+                if let Some(detector) = detector.as_mut() {
+                    // A capture gap is not proof of silence: count again.
+                    if now.saturating_duration_since(last_frame) > Duration::from_secs(1) {
+                        detector.reset();
+                    }
+                    silence.store(detector.observe(&frame.samples, channels, now), Ordering::Relaxed);
+                }
                 last_frame = now;
                 let Ok(targets) = senders.lock() else {
                     unexpected_exit = true;
@@ -1168,7 +1204,13 @@ fn pump_loop(
                     max_capture_gap = Duration::ZERO;
                 }
             }
-            Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                if let Some(detector) = detector.as_mut() {
+                    detector.reset();
+                    silence.store(false, Ordering::Relaxed);
+                }
+                continue;
+            }
             Err(_) => {
                 // El canal de captura se cerró sin que nosotros pidamos shutdown:
                 // device removed, driver crash, parec mató al subproceso, etc.
@@ -1202,6 +1244,7 @@ async fn stop_streaming(
     state: State<'_, StreamingState>,
 ) -> Result<(), String> {
     state.control.cancel();
+    state.standby.lock().unwrap().take();
     emit_session(&app, state.control.current(), "disconnected");
     let active = state.inner.lock().await.take();
     if let Some(mut active) = active {
@@ -1643,6 +1686,111 @@ fn save_general_settings(app: tauri::AppHandle, settings: GeneralSettings) -> Re
     let store = app.store(STORE_FILE).map_err(|e| e.to_string())?;
     store.set(KEY_GENERAL, serde_json::to_value(settings).map_err(|e| e.to_string())?);
     store.save().map_err(|e| e.to_string())
+}
+
+const KEY_STANDBY: &str = "standby";
+
+/// Preferences > General > release the speaker after silence. Invalid or
+/// missing values fall back to the defaults (disabled).
+fn load_standby_options(app: &tauri::AppHandle) -> standby::Options {
+    app.store(STORE_FILE)
+        .ok()
+        .and_then(|store| store.get(KEY_STANDBY))
+        .and_then(|value| serde_json::from_value::<standby::Options>(value).ok())
+        .filter(|options| options.validate().is_ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn get_standby_options(app: tauri::AppHandle) -> standby::Options {
+    load_standby_options(&app)
+}
+
+/// Applies from the next start of playback.
+#[tauri::command]
+fn save_standby_options(app: tauri::AppHandle, options: standby::Options) -> Result<(), String> {
+    options.validate()?;
+    let store = app.store(STORE_FILE).map_err(|e| e.to_string())?;
+    store.set(KEY_STANDBY, serde_json::to_value(options).map_err(|e| e.to_string())?);
+    store.save().map_err(|e| e.to_string())
+}
+
+/// Restarts the session released after silence, on the same receivers.
+/// Returns the new session generation. On failure the session stays in
+/// standby so the user can try again.
+#[tauri::command]
+async fn resume_streaming(
+    app: tauri::AppHandle,
+    state: State<'_, StreamingState>,
+) -> Result<u64, String> {
+    let pending = state
+        .standby
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("no_session_to_resume")?;
+    let mut token = state.control.begin();
+    let _operation = state.operation.lock().await;
+    let generation = token.generation;
+    if generation != state.control.current() {
+        return Err("session_cancelled".into());
+    }
+    emit_session(&app, generation, "preparing");
+    let prepared = tokio::select! {
+        biased;
+        _ = token.cancelled() => return Err("session_cancelled".into()),
+        result = within_deadline(prepare_targets(
+            app.clone(),
+            &pending.targets,
+            pending.latency_ms,
+            generation,
+            pending.group_mode,
+        )) => result,
+    };
+    let mut active = match prepared {
+        Ok(active) => active,
+        Err(error) => {
+            if state.control.current() == generation {
+                emit_session(&app, generation, "standby");
+            }
+            return Err(error);
+        }
+    };
+    let previous = {
+        let mut slot = state.inner.lock().await;
+        if generation != state.control.current() {
+            drop(slot);
+            active.shutdown();
+            active.stop_outputs().await;
+            return Err("session_cancelled".into());
+        }
+        state.standby.lock().unwrap().take();
+        slot.replace(active)
+    };
+    if let Some(mut previous) = previous {
+        previous.shutdown();
+        previous.stop_outputs().await;
+    }
+    monitor_active(&app, &state, generation).await;
+    Ok(generation)
+}
+
+#[cfg(test)]
+mod standby_tests {
+    use super::*;
+
+    #[test]
+    fn stored_standby_options_use_the_shared_format() {
+        let options = standby::Options {
+            enabled: true,
+            minutes: 10,
+            threshold_dbfs: -65,
+        };
+        assert_eq!(
+            serde_json::to_value(options).unwrap(),
+            serde_json::json!({ "enabled": true, "minutes": 10, "threshold_dbfs": -65 })
+        );
+    }
 }
 
 /// "Start AirSend when Windows starts": an entry in the user's Run key,
@@ -2196,6 +2344,9 @@ pub fn run() {
             add_streaming,
             remove_streaming,
             stop_streaming,
+            resume_streaming,
+            get_standby_options,
+            save_standby_options,
             set_stream_volume,
             is_streaming,
             list_streaming,
@@ -2341,6 +2492,8 @@ fn start_session_monitor(app: tauri::AppHandle, generation: u64) {
                     Some("feedback_failed")
                 } else if failed_sends >= 3 {
                     Some("transport_failed")
+                } else if active.silence.load(std::sync::atomic::Ordering::Relaxed) {
+                    Some("idle")
                 } else {
                     None
                 }
@@ -2365,12 +2518,33 @@ fn start_session_monitor(app: tauri::AppHandle, generation: u64) {
                 .collect::<Vec<_>>();
             let latency_ms = failed.latency_ms;
             let group_mode = failed.group_mode;
-            failed.diagnostics.lock().unwrap().record_failure(reason);
+            if reason != "idle" {
+                failed.diagnostics.lock().unwrap().record_failure(reason);
+            }
             failed.shutdown();
             failed.stop_outputs().await;
             drop(failed);
             // A user-requested replacement/Stop always takes priority over automatic recovery.
             if state.control.current() != generation {
+                return;
+            }
+            if reason == "idle" {
+                // Released after silence so another device can use the speaker.
+                // Resuming is manual: doing it when the PC makes sound again
+                // would take the speaker from whoever is using it now.
+                let _ = disconnect_device(app.state::<ConnectionState>()).await;
+                let mut pending = state.standby.lock().unwrap();
+                // Checked under the lock: a Play or Stop clears it after `begin`.
+                if state.control.current() == generation {
+                    *pending = Some(PendingResume {
+                        targets,
+                        latency_ms,
+                        group_mode,
+                    });
+                    drop(pending);
+                    tracing::info!("speaker released after silence; waiting for a manual resume");
+                    emit_session(&app, generation, "standby");
+                }
                 return;
             }
             // Global setting (Preferences > General), or the legacy per-receiver flag.

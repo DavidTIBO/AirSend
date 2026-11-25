@@ -42,6 +42,8 @@ let volumeRevision = 0;
 let playing = false;
 let synchronizedPlaying = false;
 let sessionRecovering = false;
+/// The speaker was released after silence; ▶ on its row resumes the session.
+let standby = false;
 /// Volume of the primary receiver (0-100).
 let primaryVolume = 20;
 let multiDevice = false;
@@ -84,9 +86,16 @@ function setupAsyncErrorListener() {
   void listen<{ generation: number; code: string }>("airplay://session", (event) => {
     if (event.payload.generation < activeGeneration) return;
     activeGeneration = event.payload.generation;
-    sessionRecovering = event.payload.code === "recovering";
-    if (event.payload.code === "recovering" || event.payload.code === "streaming") playing = true;
-    if (event.payload.code === "disconnected" && !actionBusy) { playing = false; activeRoutes.clear(); }
+    const code = event.payload.code;
+    sessionRecovering = code === "recovering";
+    if (code === "recovering" || code === "streaming") { playing = true; standby = false; }
+    if (code === "standby" && !actionBusy) {
+      // Released after silence: keep the receivers so ▶ can resume them.
+      if (playing) showToast(t("standby_released"), 8000);
+      playing = false;
+      standby = true;
+    }
+    if (code === "disconnected" && !actionBusy) { playing = false; standby = false; activeRoutes.clear(); }
     render();
   });
   // After sleep the backend already closed the session and mDNS; receivers
@@ -182,6 +191,7 @@ async function startPlay() {
     activeRoutes.clear();
     activeRoutes.set(dev.id, route);
     playing = true;
+    standby = false;
     void invoke("save_last_device", { ip, port: route.port, name: dev.name });
     void invoke("save_volume", { volume: primaryVolume / 100 });
   } catch (err) {
@@ -273,10 +283,46 @@ function isPlayingOn(d: Device) {
   return playing && activeRoutes.has(d.id);
 }
 
+function isStandbyOn(d: Device) {
+  return standby && !playing && activeRoutes.has(d.id);
+}
+
+/// ▶ on a receiver released after silence: restart the same session.
+async function resumePlay() {
+  if (actionBusy || latencyApplying || stopping) return;
+  const intent = ++intentSequence;
+  actionBusy = true;
+  connectingId = connectedId;
+  render();
+  try {
+    const generation = await invoke<number>("resume_streaming");
+    if (intent !== intentSequence) return;
+    activeGeneration = Math.max(activeGeneration, generation);
+    standby = false;
+    playing = true;
+  } catch (err) {
+    const code = String(err);
+    if (code === "no_session_to_resume") {
+      standby = false;
+      activeRoutes.clear();
+    }
+    showToast(code === "no_session_to_resume" || code === "receiver_in_use" ? t(code) : t("error_prefix", { err: code }));
+  } finally {
+    actionBusy = false;
+    connectingId = null;
+    render();
+  }
+}
+
 /// ▶ on a row: start on that receiver, switch to it, or add it.
 async function playOn(d: Device) {
   if (actionBusy || latencyApplying || stopping) return;
   if (playing) { await switchOrAdd(d); return; }
+  if (standby) {
+    // Starting elsewhere discards the session waiting to be resumed.
+    standby = false;
+    activeRoutes.clear();
+  }
   connectingId = d.id;
   connectedId = d.id;
   connectedRoute = null;
@@ -364,6 +410,7 @@ const SPEAKER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y=
 function rowStatus(d: Device): string {
   if (isPlayingOn(d)) return sessionRecovering ? "recovering" : "playing";
   if (connectingId === d.id || (actionBusy && !playing && connectedId === d.id)) return "connecting";
+  if (isStandbyOn(d)) return "standby";
   if (d.available === false) return "unavailable";
   return "disconnected";
 }
@@ -416,10 +463,11 @@ function render() {
     toggle.type = "button";
     toggle.className = `row-toggle${active ? " playing" : ""}`;
     toggle.innerHTML = active ? STOP_ICON : PLAY_ICON;
-    toggle.title = t(active ? "rx_stop" : "rx_play", { name: d.name });
+    const resumable = isStandbyOn(d);
+    toggle.title = t(active ? "rx_stop" : resumable ? "rx_resume" : "rx_play", { name: d.name });
     toggle.setAttribute("aria-label", toggle.title);
     toggle.disabled = busy || (!active && (d.available === false || (Boolean(d.member_ids) && !d.pair_complete)));
-    toggle.addEventListener("click", () => void (active ? stopOn(d) : playOn(d)));
+    toggle.addEventListener("click", () => void (active ? stopOn(d) : resumable ? resumePlay() : playOn(d)));
 
     li.append(icon, info, slider, toggle);
     devicesList.appendChild(li);

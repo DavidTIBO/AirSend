@@ -98,6 +98,12 @@ ul.receivers {
   background: color-mix(in srgb, #16a34a 8%, var(--card));
 }
 
+/* Released after silence: still the session's receiver, ▶ resumes it. */
+.receiver.standby {
+  border-style: dashed;
+  border-color: #16a34a;
+}
+
 .receiver.unavailable { opacity: 0.55; }
 
 .receiver .kind-icon {

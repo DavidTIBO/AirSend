@@ -76,6 +76,44 @@ startMinimized.addEventListener("change", () => void saveGeneral({ start_minimiz
 autoPlay.addEventListener("change", () => void saveGeneral({ auto_play: autoPlay.checked }));
 reconnectOnError.addEventListener("change", () => void saveGeneral({ reconnect_on_error: reconnectOnError.checked }));
 
+// ── Silence (release the speaker) ───────────────────────────────────────────
+
+/// Same "standby" format as the WinUI edition of AirSend (shared settings.json).
+interface StandbyOptions { enabled: boolean; minutes: number; threshold_dbfs: number }
+const standbyEnabled = $<HTMLInputElement>("standby-enabled");
+const standbyMinutes = $<HTMLSelectElement>("standby-minutes");
+const standbyStatus = $<HTMLSpanElement>("standby-status");
+let standby: StandbyOptions = { enabled: false, minutes: 5, threshold_dbfs: -65 };
+
+function showStandby() {
+  standbyEnabled.checked = standby.enabled;
+  // Keep a value saved by another edition even if it is not in the list.
+  if (!Array.from(standbyMinutes.options).some((option) => option.value === String(standby.minutes))) {
+    standbyMinutes.add(new Option(`After ${standby.minutes} minutes`, String(standby.minutes)));
+  }
+  standbyMinutes.value = String(standby.minutes);
+  standbyMinutes.disabled = !standby.enabled;
+}
+
+async function saveStandby(patch: Partial<StandbyOptions>) {
+  const next = { ...standby, ...patch };
+  try {
+    await invoke("save_standby_options", { options: next });
+    standby = next;
+    standbyStatus.textContent = "";
+  } catch (err) {
+    standbyStatus.textContent = String(err);
+  }
+  showStandby();
+}
+
+void invoke<StandbyOptions>("get_standby_options").then((options) => {
+  standby = options;
+  showStandby();
+}).catch((e) => { standbyStatus.textContent = String(e); });
+standbyEnabled.addEventListener("change", () => void saveStandby({ enabled: standbyEnabled.checked }));
+standbyMinutes.addEventListener("change", () => void saveStandby({ minutes: Number(standbyMinutes.value) }));
+
 // ── AirPlay streaming ───────────────────────────────────────────────────────
 
 const latency = $<HTMLInputElement>("latency");
