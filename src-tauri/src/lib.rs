@@ -439,6 +439,16 @@ fn resolve_descriptor(
     }
 }
 
+/// UI-facing message for a stream failure. "receiver_in_use" has no "stream:"
+/// prefix on purpose: the UI must not try another route of the same receiver.
+fn stream_error(error: cap_core::streaming::StreamError) -> String {
+    if error.receiver_in_use() {
+        "receiver_in_use".into()
+    } else {
+        format!("stream: {error}")
+    }
+}
+
 async fn prepare_output(
     ip: &str,
     port: u16,
@@ -462,8 +472,8 @@ async fn prepare_output(
     )
     .await
     .map_err(|e| {
-        diagnostics.lock().unwrap().record_failure(e.stage_code());
-        format!("stream: {e}")
+        diagnostics.lock().unwrap().record_stream_failure(&e);
+        stream_error(e)
     })
 }
 
@@ -477,8 +487,8 @@ async fn start_output(
 ) -> Result<ActiveOutput, String> {
     let metrics = prepared.metrics();
     let handle = prepared.start().await.map_err(|e| {
-        diagnostics.lock().unwrap().record_failure(e.stage_code());
-        format!("stream: {e}")
+        diagnostics.lock().unwrap().record_stream_failure(&e);
+        stream_error(e)
     })?;
     let (_, connection, heartbeat, _, _) = handle.into_parts();
     Ok(ActiveOutput {
@@ -729,8 +739,8 @@ async fn prepare_synchronized_stream(
         cap_core::streaming::prepare_group_live_stream(descriptors, &volumes, latency_ms, policy)
             .await
             .map_err(|e| {
-                diagnostics.lock().unwrap().record_failure(e.stage_code());
-                format!("stream: {e}")
+                diagnostics.lock().unwrap().record_stream_failure(&e);
+                stream_error(e)
             })?;
     let options = get_audio_options(app.clone())?;
     let capture_policy = if policy == LocalBufferPolicy::LowLatency {
@@ -811,8 +821,8 @@ async fn prepare_synchronized_stream(
             .diagnostics
             .lock()
             .unwrap()
-            .record_failure(e.stage_code());
-        format!("stream: {e}")
+            .record_stream_failure(&e);
+        stream_error(e)
     })?;
     for ((connection, heartbeat, metrics), (ip, port, name, volume)) in
         handle.outputs.into_iter().zip(targets)
@@ -2324,6 +2334,9 @@ fn start_session_monitor(app: tauri::AppHandle, generation: u64) {
                 last_send_errors = sends;
                 if active.stop.load(std::sync::atomic::Ordering::SeqCst) {
                     Some("capture_interrupted")
+                } else if active.outputs.values().any(|o| o.metrics.closed_by_receiver()) {
+                    // Checked before `unhealthy`: no need to wait for 3 failed heartbeats.
+                    Some("receiver_taken")
                 } else if active.outputs.values().any(|o| o.metrics.unhealthy()) {
                     Some("feedback_failed")
                 } else if failed_sends >= 3 {
@@ -2361,7 +2374,10 @@ fn start_session_monitor(app: tauri::AppHandle, generation: u64) {
                 return;
             }
             // Global setting (Preferences > General), or the legacy per-receiver flag.
-            let reconnect = load_general_settings(&app).reconnect_on_error
+            // Never when the receiver ended the session itself: reconnecting
+            // would take it back from the device that just started playing.
+            let reconnect = reason != "receiver_taken"
+                && (load_general_settings(&app).reconnect_on_error
                 || targets.iter().any(|(ip, port, _, _)| {
                 let discovery = app.state::<DiscoveryState>();
                 let cache = discovery.cache.lock().unwrap();
@@ -2383,7 +2399,7 @@ fn start_session_monitor(app: tauri::AppHandle, generation: u64) {
                         });
                 pair_reconnect
                     || get_receiver_preferences(app.clone(), id).is_ok_and(|p| p.reconnect)
-            });
+            }));
             if reconnect {
                 let mut token = state.control.subscribe(generation);
                 emit_session(&app, generation, "recovering");

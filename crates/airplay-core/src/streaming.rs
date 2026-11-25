@@ -117,6 +117,38 @@ impl StreamError {
             _ => false,
         }
     }
+
+    /// The receiver explicitly refused the session because another device is playing.
+    pub fn receiver_in_use(&self) -> bool {
+        match self {
+            Self::Client { source, .. } => matches!(
+                source,
+                ap2rs_core::Error::Rtsp(ap2rs_core::RtspError::ReceiverInUse)
+            ),
+            Self::RetryExhausted { last, .. } => last.receiver_in_use(),
+            _ => false,
+        }
+    }
+
+    /// Coarse failure class for diagnostics; carries no receiver identity or detail.
+    pub fn failure_code(&self) -> &'static str {
+        use ap2rs_core::{Error, RtspError, StreamingError};
+        match self {
+            Self::RetryExhausted { last, .. } => last.failure_code(),
+            Self::Client { source, .. } => match source {
+                Error::Streaming(StreamingError::PtpNegotiation) => "ptp_negotiation",
+                Error::Rtsp(RtspError::ReceiverInUse) => "receiver_in_use",
+                Error::Pairing(_) | Error::Crypto(_) | Error::MfiRequired => "authentication",
+                Error::Rtsp(RtspError::UnexpectedStatus(401 | 403)) => "authentication",
+                Error::Timeout => "timeout",
+                Error::Connection(_) | Error::Rtsp(RtspError::ConnectionRefused) => "transport",
+                _ => "protocol",
+            },
+            Self::Pairing(_) => "descriptor",
+            Self::Encoder(_) => "encoder",
+            Self::InvalidLatency(_) => "configuration",
+        }
+    }
 }
 
 pub const DEFAULT_LATENCY_MS: u32 = 3000;
@@ -691,6 +723,52 @@ mod tests {
     }
 }
 
+/// True when the receiver cleanly closed the RTSP connection (end of stream).
+///
+/// A HomePod does this when another sender takes it over. A network outage
+/// shows up as timeouts instead, so it does not match.
+fn closed_by_receiver(error: &ap2rs_core::Error) -> bool {
+    matches!(error, ap2rs_core::Error::Connection(io) if io.kind() == std::io::ErrorKind::UnexpectedEof)
+}
+
+#[cfg(test)]
+mod closed_by_receiver_tests {
+    use super::*;
+    use std::io::{Error as IoError, ErrorKind};
+
+    #[test]
+    fn a_clean_close_by_the_receiver_is_recognized() {
+        let eof = ap2rs_core::Error::Connection(IoError::new(ErrorKind::UnexpectedEof, "early eof"));
+        assert!(closed_by_receiver(&eof));
+    }
+
+    #[test]
+    fn outages_and_other_failures_are_not_a_receiver_close() {
+        for error in [
+            ap2rs_core::Error::Timeout,
+            ap2rs_core::Error::Connection(IoError::new(ErrorKind::ConnectionReset, "reset")),
+            ap2rs_core::Error::Connection(IoError::new(ErrorKind::TimedOut, "timed out")),
+        ] {
+            assert!(!closed_by_receiver(&error), "{error}");
+        }
+    }
+
+    #[test]
+    fn receiver_in_use_is_classified_and_survives_retries() {
+        let in_use = StreamError::Client {
+            stage: StreamStage::Setup,
+            source: ap2rs_core::Error::Rtsp(ap2rs_core::RtspError::ReceiverInUse),
+        };
+        assert!(in_use.receiver_in_use());
+        assert_eq!(in_use.failure_code(), "receiver_in_use");
+        let exhausted = StreamError::RetryExhausted { attempts: 2, last: Box::new(in_use) };
+        assert!(exhausted.receiver_in_use());
+        let timeout = StreamError::Client { stage: StreamStage::ConnectAndPair, source: ap2rs_core::Error::Timeout };
+        assert!(!timeout.receiver_in_use());
+        assert_eq!(timeout.failure_code(), "timeout");
+    }
+}
+
 fn spawn_heartbeat(
     connection: Arc<AsyncMutex<Connection>>,
     metrics: Arc<StreamMetrics>,
@@ -716,6 +794,14 @@ fn spawn_heartbeat(
                 Ok(()) => {
                     feedback_metrics.feedback(true);
                     tracing::debug!("heartbeat feedback OK");
+                }
+                Err(e) if closed_by_receiver(&e) => {
+                    // The receiver ended the session itself, e.g. because an
+                    // iPhone started playing on it. Retrying would only fail.
+                    feedback_metrics.feedback(false);
+                    feedback_metrics.mark_closed_by_receiver();
+                    tracing::info!(error = %e, "receiver closed the AirPlay session");
+                    break;
                 }
                 Err(e) => {
                     feedback_metrics.feedback(false);

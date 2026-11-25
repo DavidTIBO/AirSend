@@ -160,7 +160,8 @@ async function streamTo(device: Device, command: "start_streaming" | "add_stream
       }
       return { route, ip };
     } catch (err) {
-      lastError = String(err) === "capture_interrupted" ? t("capture_interrupted") : err;
+      const code = String(err);
+      lastError = code === "capture_interrupted" || code === "receiver_in_use" ? t(code) : err;
       if (!String(err).startsWith("stream:")) break;
     }
   }

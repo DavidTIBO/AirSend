@@ -1,6 +1,6 @@
 //! Per-session timings and health counters; intentionally contains no identities.
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Mutex,
 };
 use std::time::{Duration, Instant};
@@ -21,6 +21,7 @@ pub struct StreamMetrics {
     feedback_failures: AtomicU64,
     feedback_successes: AtomicU64,
     consecutive_failures: AtomicU64,
+    closed_by_receiver: AtomicBool,
 }
 
 impl Default for StreamMetrics {
@@ -32,6 +33,7 @@ impl Default for StreamMetrics {
             feedback_failures: AtomicU64::new(0),
             feedback_successes: AtomicU64::new(0),
             consecutive_failures: AtomicU64::new(0),
+            closed_by_receiver: AtomicBool::new(false),
         }
     }
 }
@@ -66,6 +68,13 @@ impl StreamMetrics {
             self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
             self.feedback_failures.fetch_add(1, Ordering::Relaxed);
         }
+    }
+    pub(crate) fn mark_closed_by_receiver(&self) {
+        self.closed_by_receiver.store(true, Ordering::Relaxed);
+    }
+    /// The receiver ended the session itself (for example another device took it over).
+    pub fn closed_by_receiver(&self) -> bool {
+        self.closed_by_receiver.load(Ordering::Relaxed)
     }
     pub fn unhealthy(&self) -> bool {
         self.consecutive_failures.load(Ordering::Relaxed) >= 3

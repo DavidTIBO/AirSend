@@ -15,6 +15,8 @@ const EN: Dict = {
   incomplete_pair: "Incomplete pair",
   feedback_failed: "The receiver stopped responding",
   transport_failed: "Audio transport failed",
+  receiver_taken: "Another device started playing on this speaker",
+  receiver_in_use: "This speaker is in use by another device",
   receiver_unavailable: "The receiver is no longer available",
   session_cancelled: "Operation cancelled",
   session_recovering: "Reconnecting…",

@@ -123,6 +123,9 @@ mod recovery_tests {
             "receiver does not advertise PTP",
             "unsupported format",
             "status 403",
+            "receiver_in_use",
+            "receiver_taken",
+            "stream: AirPlay RTP setup error: Streaming error: PTP clock negotiation failed",
         ] {
             assert!(!recoverable_failure(message));
         }

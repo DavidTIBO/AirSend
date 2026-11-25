@@ -55,7 +55,7 @@ dependencies = [
 [[package]]
 name = "airplay-audio"
 version = "0.1.0"
-source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=d0180c5d01643352d51b7744a590584610b99dec#d0180c5d01643352d51b7744a590584610b99dec"
+source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=0f36d848f83b21509e4d6e95d3afeed436862c84#0f36d848f83b21509e4d6e95d3afeed436862c84"
 dependencies = [
  "airplay-core",
  "airplay-crypto",
@@ -79,7 +79,7 @@ dependencies = [
 [[package]]
 name = "airplay-client"
 version = "0.1.0"
-source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=d0180c5d01643352d51b7744a590584610b99dec#d0180c5d01643352d51b7744a590584610b99dec"
+source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=0f36d848f83b21509e4d6e95d3afeed436862c84#0f36d848f83b21509e4d6e95d3afeed436862c84"
 dependencies = [
  "airplay-audio",
  "airplay-core",
@@ -102,7 +102,7 @@ dependencies = [
 [[package]]
 name = "airplay-core"
 version = "0.1.0"
-source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=d0180c5d01643352d51b7744a590584610b99dec#d0180c5d01643352d51b7744a590584610b99dec"
+source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=0f36d848f83b21509e4d6e95d3afeed436862c84#0f36d848f83b21509e4d6e95d3afeed436862c84"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
@@ -112,7 +112,7 @@ dependencies = [
 [[package]]
 name = "airplay-crypto"
 version = "0.1.0"
-source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=d0180c5d01643352d51b7744a590584610b99dec#d0180c5d01643352d51b7744a590584610b99dec"
+source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=0f36d848f83b21509e4d6e95d3afeed436862c84#0f36d848f83b21509e4d6e95d3afeed436862c84"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -138,7 +138,7 @@ dependencies = [
 [[package]]
 name = "airplay-discovery"
 version = "0.1.0"
-source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=d0180c5d01643352d51b7744a590584610b99dec#d0180c5d01643352d51b7744a590584610b99dec"
+source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=0f36d848f83b21509e4d6e95d3afeed436862c84#0f36d848f83b21509e4d6e95d3afeed436862c84"
 dependencies = [
  "airplay-core",
  "async-stream",
@@ -154,7 +154,7 @@ dependencies = [
 [[package]]
 name = "airplay-pairing"
 version = "0.1.0"
-source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=d0180c5d01643352d51b7744a590584610b99dec#d0180c5d01643352d51b7744a590584610b99dec"
+source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=0f36d848f83b21509e4d6e95d3afeed436862c84#0f36d848f83b21509e4d6e95d3afeed436862c84"
 dependencies = [
  "airplay-core",
  "airplay-crypto",
@@ -168,7 +168,7 @@ dependencies = [
 [[package]]
 name = "airplay-resampler"
 version = "0.1.0"
-source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=d0180c5d01643352d51b7744a590584610b99dec#d0180c5d01643352d51b7744a590584610b99dec"
+source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=0f36d848f83b21509e4d6e95d3afeed436862c84#0f36d848f83b21509e4d6e95d3afeed436862c84"
 dependencies = [
  "airplay-core",
  "fastrand",
@@ -179,7 +179,7 @@ dependencies = [
 [[package]]
 name = "airplay-rtsp"
 version = "0.1.0"
-source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=d0180c5d01643352d51b7744a590584610b99dec#d0180c5d01643352d51b7744a590584610b99dec"
+source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=0f36d848f83b21509e4d6e95d3afeed436862c84#0f36d848f83b21509e4d6e95d3afeed436862c84"
 dependencies = [
  "airplay-core",
  "airplay-crypto",
@@ -199,7 +199,7 @@ dependencies = [
 [[package]]
 name = "airplay-timing"
 version = "0.1.0"
-source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=d0180c5d01643352d51b7744a590584610b99dec#d0180c5d01643352d51b7744a590584610b99dec"
+source = "git+https://github.com/DavidTIBO/airplay2-rs?rev=0f36d848f83b21509e4d6e95d3afeed436862c84#0f36d848f83b21509e4d6e95d3afeed436862c84"
 dependencies = [
  "airplay-core",
  "async-trait",
